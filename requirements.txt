@@ -1,0 +1,7 @@
+bs4
+xmltodict
+numpy
+matplotlib
+pandas
+itables
+json
