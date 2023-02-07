@@ -1,80 +1,83 @@
-# Project name
+# USG Grants Crawl
 
 (branding & badges go here)
 
 ## Overview description
 
-(description of the project/codebase & intended use(s))
+An exploration of federal (and some non-federal) grants targeting [Open Science](https://open.science.gov/), using python & jupyter notebooks.  Technically, no longer implemented as a crawl/scrape based usage of [grants.gov APIs](https://www.grants.gov/web/grants/s2s/grantor/web-services.html), and instead uses the [XML Extract](https://www.grants.gov/xml-extract.html) to download and work with the grant database locally.
 
 ### Keywords
 
-keywords: 
+keywords: [grants.gov](https://www.grants.gov/), grants, open science
 
 ## Installlation
 
 ### Dependencies
 
-(Probably see https://github.com/<thisrepo>/requirements.txt)
+#### Built-ins
+- [json](https://docs.python.org/3/library/json.html)
+- [re](https://docs.python.org/3/library/re.html)
+- [itertools](https://docs.python.org/3/library/itertools.html) 
+
+#### Packages
+- [bs4](https://pypi.org/project/bs4/)
+- [xmltodict](https://pypi.org/project/xmltodict/)
+- [numpy](https://pypi.org/project/numpy/)
+- [matplotlib](https://pypi.org/project/matplotlib/)
+- [pandas](https://pypi.org/project/pandas/)
+- [d3blocks](https://pypi.org/project/d3blocks/)
+- [notebook](https://pypi.org/project/notebook/) (Jupyter Notebook)
+
 
 ## Project / Codebase overview
 
-(Probably contained within https://github.com/<thisrepo>/<thisrepo>)
-(broad strokes structuring)
+This repository contains a series of jupyter notebooks (stored under notebooks) which deail portions of the data anlysis process associated with our overarching endeavor (i.e. exploring US Government funding of Open Science-Related endeavors, via grants).
+
+### Chapter overviews
+
+#### XML Ingest
+[link to chapter](https://github.com/DanNBullock/USG_grants_crawl/blob/main/GrantsDotGov_XML_ingest.ipynb)
+
+In this chapter we load up the XML file downloaded from grants.gov, look at the general data schema, and do a summary glance of the data by agency.
+
+#### Open Science Overview
+[link to chapter](https://github.com/DanNBullock/USG_grants_crawl/blob/main/GrantsDotGov_Open_Science_Overview.ipynb)
+
+In this chapter we take a closer look at the data, within the context of open science.  Specifically, we look at the co-occurrence of terms from a list of terms we generate.
+
+#### Agency-specific
+[link to chapter](https://github.com/DanNBullock/USG_grants_crawl/blob/main/GrantsDotGov_Agency.ipynb)
+
+In this chapter we build upon our initial overview, by looking at how open science-related terms are used in an agency-specific fashion.
+
+#### Agency-specific replication from Lee & Chung (2022)
+[link to chapter](https://github.com/DanNBullock/USG_grants_crawl/blob/main/GrantsDotGov_Agency-Replication.ipynb)
+
+In this chapter we repeat our previous (agency-specific) analysis, but instead of using a keyword list of our own devising, we use a keyword list emperically derived by [Lee & Chung (2022)](https://doi.org/10.47989/irpaper949).  This keyword list is stored in the GitHub repository, as '[OSterms_LeeChung2022.csv](https://github.com/DanNBullock/USG_grants_crawl/blob/main/OSterms_LeeChung2022.csv)'
+
+#### Co-Occurrence frequency analysis, within-agency
+[link to chapter](https://github.com/DanNBullock/USG_grants_crawl/blob/main/GrantsDotGov_Agency-Co-Occurrence.ipynb)
+
+In this chapter we drill even further down, and look at term co-occurrence _within_ agencies, in order to see _how_ these terms are being used.  This culminates in the applicaiton of a cosine distance analysis to determine which agencies are using these terms in similar (or distinct) ways.
 
 ### Relevant modules
-(Probably contained within https://github.com/<thisrepo>/<thisrepo>)
+[Not yet modularized, but may soon be]
 
 ### Other relevant contents
-In accordance with recommendations provided [elsewhere](https://medium.com/code-factory-berlin/github-repository-structure-best-practices-248e6effc405)
-
-- tools: contains scripts and code that are used to automate within-project tasks and workflows.
-- doc: contains documentation in excess of what is provided in this README.md file.
-- test: contains unit tests and such.
-- res: static resources for this project.  E.g. images & data.
-- src: contains code in excess of the modularized component / function library that is the core of the project.
-- .build: scripts related to build processe(s), if any
-- .config: storage configuration files & settings pertinant to / derived from the local machine.
-
+TBD
 ## Project / codebase provenance
-
-(Brief summary of historical context giving rise to \<thisrepo\>)
+This project's main components are comprised of jupyter notebooks. A future version of this will likely functionalize a number of re-occuring functions, and store these in a repository-specific package (to help with notebook legibility)
 
 ### Support elements
 
 #### Authors
 
-(Probably see https://github.com/<thisrepo>/AUTHORS.md)
+[Daniel Bullock](https://dannbullock.github.io/), AAAS Fellow
 
 #### Contributors
 
-(Probably see https://github.com/<thisrepo>/CONTRIBUTORS.md)
-
-#### Funding sources
-
-(Probably see https://github.com/<thisrepo>/funding.yml)
-(maybe not the right mechanism for that)
+[Ann Stapleton](https://www.nifa.usda.gov/ann-e-stapleton), National Program Leader USDA
 
 #### References
 
-(Probably see https://github.com/<thisrepo>/ACKNOWLEDGMENTS.md)
-
-### Development elements
-
-#### License
-
-(Probably see https://github.com/<thisrepo>/LICENSE.txt)
-
-#### Changelog
-
-(Probably see https://github.com/<thisrepo>/CHANGELOG.txt)
-
-#### Support
-
-(Probably see https://github.com/<thisrepo>/SUPPORT.txt)
-
-#### Contributing
-
-(Probably see https://github.com/<thisrepo>/CONTRIBUTING.md)
-
-#### Citation
-(Probably see https://github.com/<thisrepo>/citation.cff)
+[Lee, Jae Yun, and EunKyung Chung. "Mapping open science research using a keyword bibliographic coupling analysis network." (2022).](https://doi.org/10.47989/irpaper949)
