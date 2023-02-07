@@ -3,6 +3,8 @@ xmltodict
 numpy
 matplotlib
 pandas
-itables
 json
 d3blocks
+re
+itertools
+scipy
