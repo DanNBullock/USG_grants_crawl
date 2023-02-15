@@ -5,9 +5,6 @@ import os
 import pandas as pd
 import glob
 
-testString='test1234567'
-
-testString.replace('test','oops').replace('test','yeay')
 
 def grantXML_to_dictionary(grantXML_or_path):
     """
@@ -310,11 +307,14 @@ def repairFunding_GovGrantsDF(grantsDF):
                         pass
                     
             else:
-                print(grantQuantificationValues_RE_sorted)
-        if not np.equal(grantQuantificationValues,grantQuantificationValues_RE_sorted):
+                pass
+                #print(grantQuantificationValues_RE_sorted)
+        if not np.all(np.equal(grantQuantificationValues,grantQuantificationValues_RE_sorted)):
             correctedCount=correctedCount+1
-        print(str(correctedCount) + ' grant funding value records repaired')
-        grantsDF[[quantColumns]].iloc[iIndex]=grantQuantificationValues_RE_sorted
+            grantsDF[quantColumns].iloc[iIndex]=grantQuantificationValues_RE_sorted
+    
+    print(str(correctedCount) + ' grant funding value records repaired')
+            
 
     return grantsDF
                     
@@ -348,7 +348,10 @@ def inferNames_GovGrantsDF(grantsDF):
     # get the column names
     allColumnNameslist=list(grantsDF.columns)
     # add a column for agency sub code
-    grantsDF.insert(allColumnNameslist.index('AgencyCode')+1,'AgencySubCode', '')
+    try: 
+        grantsDF.insert(allColumnNameslist.index('AgencyCode')+1,'AgencySubCode', '')
+    except:
+        pass
     #quantColumns=['AgencyName','AgencyCode']
     # set a fill value for null name values
     fillValue='Other'
@@ -357,9 +360,12 @@ def inferNames_GovGrantsDF(grantsDF):
     for iIndex,iRows in grantsDF.iterrows():
         currAgencyName=iRows['AgencyName']
         currAngencyCode=iRows['AgencyCode']
+        currAngencySubCode=''
+        inputInfo=[currAgencyName,currAngencyCode,currAngencySubCode]
         # try and split the subcode out now
         try:
             currAngencySubCode=currAngencyCode.split('-',1)[1]
+            currAngencyCode=currAngencyCode.split('-',1)[0]
         except:
             currAngencySubCode=''
         # go ahead and throw it in
@@ -367,7 +373,7 @@ def inferNames_GovGrantsDF(grantsDF):
 
         #create a vector to hold all of these
         
-        inputInfo=[currAgencyName,currAngencyCode,currAngencySubCode]
+        
 
         # if the agency code is either nan or empty we'll try and fix it
         if currAngencyCode == '':
@@ -392,21 +398,25 @@ def inferNames_GovGrantsDF(grantsDF):
                 currAngencySubCode=''
                 currAgencyName=fillValue
 
-            correctedCount =correctedCount + 1
+            #correctedCount =correctedCount + 1
 
         # if the name is null set it to the fill value as well
         if currAgencyName == '':
             currAgencyName=fillValue
-            correctedCount =correctedCount + 1
+            #correctedCount =correctedCount + 1
             try:
                 currAngencySubCode=currAngencyCode.split('-',1)[1]
+                currAngencyCode=currAngencyCode.split('-',1)[0]
             except:
                 currAngencySubCode=''
         
         outputInfo=[currAgencyName,currAngencyCode,currAngencySubCode]
         #if there is new information to add, update the record
         if not inputInfo==outputInfo:
-            grantsDF[['AgencyName','AgencyCode','AgencySubCode']].iloc[iIndex] =  outputInfo
+            grantsDF['AgencyName'].iloc[iIndex] =  outputInfo[0]
+            grantsDF['AgencyCode'].iloc[iIndex] =  outputInfo[1]
+            grantsDF['AgencySubCode'].iloc[iIndex] =  outputInfo[2]
+            correctedCount =correctedCount + 1
             # dont bother updating if not relevant.
         #print(iIndex)    
     print(str(correctedCount) + ' grant agency name or code value records altered')
@@ -446,283 +456,324 @@ def prepareGrantsDF(grantsDF, repair=True):
     
     return grantsDF
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # find the list elements where the agency full name was not available (i.e. worst case), and thus set to NAN (which was then replaced with 0)
-    grantsDF['AgencyName'].loc[grantsDF['AgencyName'].eq(0)]='Other'
-    # this will serve as a backstop in the event no information was provided
-
-    # in the event no agency code is provided (and thus set to 0) use the capital letters of the agency name
-    grantsDF['AgencyCode'].loc[grantsDF['AgencyCode'].eq(0)]=grantsDF['AgencyName'].loc[grantsDF['AgencyCode'].eq(0)].map(lambda x: ''.join([char for char in x if char.isupper()]))
-
-    # however, we don't want to have surreptitiously created the 'O' agency, so set 'O' to other, instead of the abbreviation
-    grantsDF['AgencyCode'].loc[grantsDF['AgencyCode'].eq('O')]='Other'
-
-    # also remove everything after the first hyphen.  We dont need to go that far down for this in the hirearchy
-    grantsDF['AgencyCode']=grantsDF['AgencyCode'].map(lambda x: x.split('-',1)[0])
-
-
-
-
-                        
-    # get an exclusion vector for where there's simply no useful information
-    emptyFundingVec=np.all(grantsDF[['AwardCeiling','AwardFloor','EstimatedTotalProgramFunding']].eq(0).values,axis=1)
-    singletonGrantVec=grantsDF['ExpectedNumberOfAwards'].eq(1).values
-    notUsefulVec=np.logical_and(emptyFundingVec,singletonGrantVec)
-
-    # you're giving at least one grant, lets assume that 
-    grantsDF['ExpectedNumberOfAwards'].loc[ grantsDF['ExpectedNumberOfAwards'].eq(0)]=1
-
-    # where you have a value for an award ceiling and an expected number of awards, you can at least guess an 
-    # estimated total program funding when there is a single expected award
-    grantsDF['EstimatedTotalProgramFunding'].loc[ grantsDF['ExpectedNumberOfAwards'].eq(1)]=grantsDF['AwardCeiling'].loc[ grantsDF['ExpectedNumberOfAwards'].eq(1)]
-    
-    # find candidates for AwardCeiling--ExpectedNumberOfAwards flip
-    ceilLessAwardNumBool=np.less(grantsDF['AwardCeiling'],grantsDF['ExpectedNumberOfAwards'])
-    awardNumLargerAwardFloor=np.greater(grantsDF['ExpectedNumberOfAwards'],grantsDF['AwardFloor'])
-    
-    grantNumAboveFloorValThresh=grantsDF['ExpectedNumberOfAwards'].ge(floorThresh).values
-    grantsDF.loc[np.all([np.logical_not(notUsefulVec),grantNumAboveFloorValThresh,ceilLessAwardNumBool,awardNumLargerAwardFloor],axis=0)]
-
-    # find the grant locations where the expected number of grants exceeds the total value (indicating something has been enered wrong)
-    # but there's still useful info
-    
-    grantsDF.loc[np.logical_and(np.logical_not(notUsefulVec),np.less_equal(grantsDF['EstimatedTotalProgramFunding'],grantsDF['ExpectedNumberOfAwards']))]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# if the cleaned data already exists
-if os.path.isfile('allGrantsData.csv'):
-    # remember, we are using the bar instead of comma
-    grantsDF=pd.read_csv('allGrantsData.csv',sep='|')
-    print('Cleaned CSV loaded')
-    
-    # Use wildcard to find anything that matches the requirement, and use the latest one
-elif os.path.isfile(glob.glob(os.path.join('inputData','GrantsDBExtract*.xml'))[-1]):
-    pathToXML=glob.glob(os.path.join('inputData','GrantsDBExtract*.xml'))[-1]
-    # open and parse file
-    with open(pathToXML, 'r') as f:
-        govGrantData_raw = f.read()
-    # convert xml to dictionary
-    with open(pathToXML) as xml_file:
-        govGrantData_dictionary = xmltodict.parse(xml_file.read())
-        
-    # convert to pandas dataframe
-    grantsDF=pd.DataFrame.from_records(govGrantData_dictionary['Grants']['OpportunitySynopsisDetail_1_0'], columns=['OpportunityID', 'OpportunityTitle','OpportunityNumber','AgencyCode', 'AgencyName', 'AwardCeiling', 'AwardFloor', 'EstimatedTotalProgramFunding', 'ExpectedNumberOfAwards', 'Description'])
-    # proactively replace nans for agency name with other
-    # replace the nans
-    grantsDF=grantsDF.fillna(0)
-    # free up memory
-    del govGrantData_dictionary
-    
-
-
-
-
-    # now do a bit of cleaning
-    grantsDF[['AwardCeiling','AwardFloor','EstimatedTotalProgramFunding','ExpectedNumberOfAwards']]=grantsDF[['AwardCeiling','AwardFloor','EstimatedTotalProgramFunding','ExpectedNumberOfAwards']].astype(np.int64)
-    # ideally, the names would all be formatted the same and reliable, allowing us to just index into a pandas column. 
-    # however, they're not, so we have to use this approach, and attempt to replace unreliable ones.
-
-    # find the list elements where the agency full name was not available (i.e. worst case), and thus set to NAN (which was then replaced with 0)
-    grantsDF['AgencyName'].loc[grantsDF['AgencyName'].eq(0)]='Other'
-    # this will serve as a backstop in the event no information was provided
-
-    # in the event no agency code is provided (and thus set to 0) use the capital letters of the agency name
-    grantsDF['AgencyCode'].loc[grantsDF['AgencyCode'].eq(0)]=grantsDF['AgencyName'].loc[grantsDF['AgencyCode'].eq(0)].map(lambda x: ''.join([char for char in x if char.isupper()]))
-
-    # however, we don't want to have surreptitiously created the 'O' agency, so set 'O' to other, instead of the abbreviation
-    grantsDF['AgencyCode'].loc[grantsDF['AgencyCode'].eq('O')]='Other'
-
-    # also remove everything after the first hyphen.  We dont need to go that far down for this in the hirearchy
-    grantsDF['AgencyCode']=grantsDF['AgencyCode'].map(lambda x: x.split('-',1)[0])
-    print('XML file loaded, converted to dataframe, and partially cleaned')
-else:
-# FUTURE NOTE: it may be possible to do a check for a local file meeting the relevant criterion and conditionally 
-# download from https://www.grants.gov/extract/ (and extract compressed file) in the event a local target isn't found.
-# For the moment thoug
-
-
-
-
-import zipfile
-with zipfile.ZipFile("file.zip","r") as zip_ref:
-    zip_ref.extractall("targetdir")
-
-
-
-
-
-
-
-
-
-# checker.py
-
-
-from http.client import HTTPConnection
-from urllib.parse import urlparse
-import numpy as np
-
-def site_is_online(url, timeout=2):
-    """Return True if the target URL is online.
-
-    Raise an exception otherwise.
+def grants_by_Agencies(grantsDF):
     """
-    error = Exception("unknown error")
-    parser = urlparse(url)
-    host = parser.netloc or parser.path.split("/")[0]
-    for port in (80, 443):
-        connection = HTTPConnection(host=host, port=port, timeout=timeout)
-        try:
-            connection.request("HEAD", "/")
-            return True
-        except Exception as e:
-            return False
-        finally:
-            connection.close()
-    raise error
+    Divides up the grant IDs ('OpportunityID') from the input grantsDF by top level agency.
 
+    Returns a dictionary wherein the keys are agency names and the values are lists of 'OpportunityID's.
 
+    Parameters
+    ----------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov   
 
-testLinkGood = 'https://www.grants.gov/grantsws/rest/opportunity/att/download/324381'
-testLinkBad  = '123456'
+    Returns
+    -------
+    grantFindsOut : dictionary
+        A a dictionary wherein the keys are agency names and the values are lists of 'OpportunityID's.
 
-print(site_is_online(testLinkGood))
-print(site_is_online(testLinkBad))
+    See Also
+    --------
+    searchGrantsDF_for_keywords : Divides up the grant IDs ('OpportunityID')--for grants whose description includes
+    an item from the input keywordList variable--into groups associated by keyword.
+      """
 
+    import numpy as np
+    # create a dictionary which could be saved as a json, so that you don't have to do this each time
+    agencyGrants={}
 
-import requests
+    grantAgenciesUnique = np.unique(list(grantsDF['AgencyCode'].values), return_counts=False)
 
-def get_url_status(url):  # checks status for each url in list urls
+    for iAgencies in grantAgenciesUnique:
+        # find the 'OpportunityID's of the grants whose agency code matches the current iAgency
+        currentGrantIDs=grantsDF['OpportunityID'].loc[grantsDF['AgencyCode'].eq(iAgencies)].values
+        # set it in the output dictionary
+        agencyGrants[iAgencies]=currentGrantIDs
+    return agencyGrants
+
+def searchGrantsDF_for_keywords(grantsDF,keywordList):
+    """
+    Divides up the grant IDs ('OpportunityID')--for grants whose description includes
+    an item from the input keywordList variable--into groups associated by keyword.
+
+    Returns a dictionary wherein the keys are keywords and the values are lists of 'OpportunityID's
+    wherein the the keyword was found in the associated description.
+
+    Parameters
+    ----------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov   
+    keywordList : list of strings
+        A list of strings corresponding to the keywords one is interested in assessing the occurrences of. 
+
+    Returns
+    -------
+    grantFindsOut : dictionary
+        A a dictionary wherein the keys are keywords and the values are lists of 'OpportunityID's
+    wherein the the keyword was found in the associated description.
+
+    See Also
+    --------
+    grants_by_Agencies : Divides up the grant IDs ('OpportunityID') from the input grantsDF by top level agency.
+    """
+    import re
+
+    # create a dictionary which could be saved as a json, so that you don't have to do this each time
+    grantFindsOut={}
+    grantsDF['Description']=grantsDF['Description'].apply(lambda x: x.lower().replace('-',''))
+
+    for iKeywords in keywordList:
+    # create a blank list to store the IDs of the grants with the keyword in the description
+        grantsFound=[]
+        # create the compiled search for this keyword
+        compiledSearch=re.compile('\\b'+iKeywords.lower()+'\\b')
+        for iRows,iListing in grantsDF.iterrows():
+            # maybe it doesn't have a description field
+            try:
+                # case insensitive find for the keyword
+                # get rid of dashes to be insensitive to variations in hyphenation behaviors
+                if bool(compiledSearch.search(iListing['Description'])):
+                    #append the ID if found
+                    grantsFound.append(iListing['OpportunityID'])
+            except:
+                # do nothing, if there's no description field, then the word can't be found
+                pass
+                
+        # store the found entries in the output dictionary.  Use the keyword as the key (with spaces replaced with underscores),
+        # and the value being the list of grant IDs
+        # maybe don't do this for now
+        #grantFindsOut[iKeywords.replace(' ','_')]=grantsFound
+        grantFindsOut[iKeywords]=grantsFound
+    return grantFindsOut
+
+#def evalGrantCoOccurrence(dictionariesList,formatOut='dictionary'):
+#    """
+#    DOESN'T WORK
+#    code-davinci-002 prompt:
+#    This function takes a list of dictionaries as input.  Each dictionary is formatted such that the keys are strings, and the values are lists.  The output is also a dictionary.  It's keys are tuples, wherein each element of the tuple corresponds to a key value of the corresponding (in sequence order) input dictionaries.  For example, for an input featuring three dictionaries, the i_0,j_0,k_0 dictionary entry would correspond to the list values which were associated for all of the following: dictionary_i keyitem_0, dictionary_j keyitem_0, dictionary_k keyitem_0.  Tuples which do not return any shared list elements are assocaited with a blank list in the output dictionary structure.
+#    
+#    Parameters
+#    ----------
+#    dictionariesList : list of dictionaries
+#        A list such that each member dictionary is formatted such that the keys are strings, and the values are lists.
+#    formatOut : string
+#        The desired format of the output. Either 'dictionary' or 'dataframe'.  'dataframe' likely will not work for list sizes larger than 2.  
+#
+#    Returns
+#    -------
+#    grantFindsOut : dictionary or pandas.DataFrame
+#        If formatOut='dictionary' : a dictionary such that its keys are tuples, wherein each element of the tuple corresponds to a key value of the corresponding (in sequence order) input dictionaries.
+#        If formatOut='dataframe' : a pandas.DataFrame such that the row indexes correspond to the keys of the first input, and the column indexes correspond to the keys of the second input.  The cell values are lists of co occurring list elements.
+#    """
+#    #initialize the output dictionary
+#    out_dict = {}
+#    #iterate through the input dictionary list
+#    for i in range(len(dictionariesList)):
+#        #iterate through the keys of the current dictionary
+#        for key in dictionariesList[i].keys():
+#            #iterate through the values of the current dictionary
+#            for value in dictionariesList[i][key]:
+#                #initialize a list to store the values of the other dictionaries
+#                other_values = []
+#                #iterate through the other dictionaries
+#                for j in range(len(dictionariesList)):
+#                    #skip the current dictionary
+#                    if j != i:
+#                        #iterate through the keys of the other dictionaries
+#                        for other_key in dictionariesList[j].keys():
+#                            #iterate through the values of the other dictionaries
+#                            for other_value in dictionariesList[j][other_key]:
+#                                #if the current value is equal to the other value, append the other value to the other values list
+#                                if value == other_value:
+#                                    other_values.append(other_value)
+#                #if the other values list is not empty, add the tuple of the current value and the other values list to the output dictionary
+#                if other_values != []:
+#                    out_dict[(value,)] = other_values
+#    #return the output dictionary
+#    return out_dict
+
+def evalGrantCoOccurrence(dictionariesList,formatOut='dictionary'):
+    """
     
+    code-davinci-002 prompt:
+    This function takes a list of dictionaries as input.  Each dictionary is formatted such that the keys are strings, and the values are lists.  The output is also a dictionary.  It's keys are tuples, wherein each element of the tuple corresponds to a key value of the corresponding (in sequence order) input dictionaries.  For example, for an input featuring three dictionaries, the i_0,j_0,k_0 dictionary entry would correspond to the list values which were associated for all of the following: dictionary_i keyitem_0, dictionary_j keyitem_0, dictionary_k keyitem_0.  Tuples which do not return any shared list elements are assocaited with a blank list in the output dictionary structure.
+    Davinci code didn't work, doing manually    
+
+    Parameters    ----------
+    dictionariesList : list of dictionaries
+        A list such that each member dictionary is formatted such that the keys are strings, and the values are lists.
+    formatOut : string
+        The desired format of the output. Either 'dictionary' or 'dataframe'.  'dataframe' likely will not work for list sizes larger than 2.  
+
+    Returns
+    -------
+    grantFindsOut : dictionary or pandas.DataFrame
+        If formatOut='dictionary' : a dictionary such that its keys are tuples, wherein each element of the tuple corresponds to a key value of the corresponding (in sequence order) input dictionaries.
+        If formatOut='dataframe' : a pandas.DataFrame such that the row indexes correspond to the keys of the first input, and the column indexes correspond to the keys of the second input.  The cell values are lists of co occurring list elements.
+    """
+    import itertools
+    import pandas as pd
+
+    # create output structure
+    grantFindsOut={}
+    # get the list of keys for all inputs
+    keysLists=[list(iDictionaries.keys()) for iDictionaries in dictionariesList]
+    # find the unique(?) combinations of these
+    allKeyCombinations=list(itertools.product(*keysLists))
+    #iterate across them
+    for iKeyCombos in  allKeyCombinations:
+        # create a holder for the key-value results for each dictioanry
+        allPairResults=[]
+        # iterate across the key lists / input dictionaries
+        for iDictionaryIndex,iKeys in enumerate(iKeyCombos):
+            try:
+                # try and get the current key value
+                allPairResults.append(dictionariesList[iDictionaryIndex][iKeys])
+            except:
+                # otherwise put in an empty, probably not possible           
+                allPairResults.append([])
+
+        # covert these lists to sets    
+        asSets=[set(iPairResult) for iPairResult in allPairResults]
+        # find the intersection of the sets, redundancy with self input doesn't matter
+        allIntersection=list(asSets[0].intersection(*asSets))
+        # place it in the output strucutre
+        grantFindsOut[iKeyCombos]=allIntersection
+
+    if len(dictionariesList)==2 and formatOut.lower()=='dataframe':
+        outDF=pd.DataFrame(index=keysLists[0],columns=keysLists[1])
+        for iRecords in grantFindsOut:
+            outDF.loc[iRecords[0],iRecords[1]]=grantFindsOut[iRecords]
+
+        return outDF
+    else: 
+        return grantFindsOut
+        
+
+def detectLocalGrantData(localPath='',forceDownload=True):
+    """
+    Detects and loads local grant data.  Optionally download it if not found locally
+
+
+    Parameters    ----------
+    localPath : string
+        Path to where  the grant data is, or where the user would like it to be if it is not already there.
+    forceDownload : bool
+        Flag to determine what happens if data isn't found.  Will download if 'True'.
+    
+    Returns
+    -------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov
+
+    See Also
+    --------
+    grantXML_to_dictionary : convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
+  
+    """
+    import os
+    import pandas as pd
+    import glob
+
+    # do a quick reset to the current working directory if relevant
+    if  localPath=='':
+        localPath=os.getcwd()
+
+
+    if os.path.isfile(localPath):
+        
+        if os.path.splitext(localPath)[-1].lower()=='.csv':
+            # remember, we are using the bar instead of comma, description field has commas, as do some names
+            grantsDF=pd.read_csv('allGrantsData.csv',sep='|')
+            print('CSV loaded')
+        elif os.path.splitext(localPath)[-1].lower()=='.xml':
+            grantsDF=grantXML_to_dictionary(grantXML_or_path)
+        else:
+            Exception('Input file format not recognized')
+
+    # if the input is a directory, check to see what's there        
+    elif os.path.isdir(localPath):
+        # check for the file
         try:
-            r = requests.get(url)
-            return r.status_code
-        except Exception as e:
-           
-            return False
-
-print(get_url_status(testLinkGood))
-print(get_url_status(testLinkBad))
-
-
-
-open_df = pd.read_csv('open_applications.csv')
-open_id = list(open_df['id'])
-base_url='http://www.grants.gov/grantsws/rest/opportunity/details?oppId='
-#base_url= 'http://www.grants.gov/grantsws/OppDetails?oppId='
-document_url = 'http://www.grants.gov/grantsws/rest/oppdetails/att/download/'
-
-import json
-import requests
-
-def readPDF(filename):
-    input = PdfFileReader(file(filename, "rb"))
-    content = ''
-    for page in input.pages:
-        content += ' ' + page.extractText()
-    return content
-
-def download_file(url):
-    local_filename = url.split('/')[-1] + '.pdf'
-    r = requests.get(url, stream=True)
-    with open(local_filename, 'wb') as f:
-        for chunk in r.iter_content(chunk_size=1024): 
-            if chunk: # filter out keep-alive new chunks
-                f.write(chunk)
-    return local_filename
-
-def getGrantData(oppID):
-    url = base_url + str(oppID)
-    response = requests.get(url)
-    data = json.loads(response.content)
-    f = open(str(oppID) + '.json', 'wb')
-    try:
-        document_id = data['synopsisAttachmentFolders'][0]['synopsisAttachments'][0]['id']
-        doc_url = document_url + str(document_id)
-        pdfFileName = download_file(doc_url)
-        pdfData = readPDF(pdfFileName)
-        data['synopsisAttachmentFolders'][0]['synopsisAttachments'][0]['documentContent'] = pdfData
-    except:
-        pass
-    data = json.dumps(data)
-    return data
-
-
-testID=262149
-
-#grantDataOut=getGrantData(262149)
-#print(grantDataOut)
-oppID=testID
+            if os.path.isfile(glob.glob(os.path.join(localPath,'GrantsDBExtract*.xml'))[-1]):
+                # if it exists get the path
+                pathToXML=glob.glob(os.path.join(localPath,'GrantsDBExtract*.xml'))[-1]
+                # and load it
+                grantsDF=grantXML_to_dictionary(pathToXML)
+        except:
+            print ('No local grant data xml file found')
+            # if the forceDownload option is set
+            if forceDownload:
+                print('Downloading grant data from grants.gov')
+                xmlDownloadPath=downloadLatestGrantsXML(savePathDir=localPath)
+                grantsDF=grantXML_to_dictionary(xmlDownloadPath)
+    
+    return grantsDF
 
 def load_details(opp_id):
-    return requests.post("https://www.grants.gov/grantsws/rest/opportunity/details", data={'oppId': opp_id}).json()
-detailsOut=load_details(oppID)
+    """
+    Uses the grants.gov rest API to get the information for the specified grant.
 
-grantsFindJSON='C:\\Users\\dbullock\\Documents\\code\\gitDir\\USG_grants_crawl\\grantFindsOut.json'
-# Opening JSON file
-f = open(grantsFindJSON)
-keywordsData=json.load(f )
-f.close()
+    Parameters    ----------
+    opp_id: str or int
+        The 'OpportunityID' identifier for the current target grant.
 
-idList=[]
-for iKeywords in list(keywordsData.keys()):
-    idList.extend(keywordsData[iKeywords])
-import numpy as np
-uniqueIDs,counts=np.unique(idList, return_counts=True)
 
-atLeastTwiceIDs=uniqueIDs[counts>=2]
-storeOutputDirectory='C:\\Users\\dbullock\\Documents\\code\\dataSources\\grantData'
-import os
-docDownloadLink='https://www.grants.gov/grantsws/rest/opportunity/att/download/'
+    
+    Returns
+    -------
+    outJson: json
+        A json structure with the rest API output.  See https://www.grants.gov/web/grants/s2s/grantor/schemas/grants-funding-synopsis.html     
 
-for twiceIDs in atLeastTwiceIDs:
-    currentSaveDir=os.path.join(storeOutputDirectory,str(twiceIDs))
+    See Also
+    --------
+   
+    """
+    outJson=requests.post("https://www.grants.gov/grantsws/rest/opportunity/details", data={'oppId': opp_id}).json()
+
+    return outJson
+
+def downloadGrantsGov_grantDocs(OpportunityID,localPath=''):
+    """
+    Downloads the associated grants.gov documents for a given grant, as specified by it's OpportunityID
+
+
+    Parameters    ----------
+    OpportunityID: str or int
+        The 'OpportunityID' identifier for the current target grant.
+    localPath : string
+        Path to where the output data should be downloaded to.  Will then create a directory in this directory,
+        with the title being the OpportunityID
+
+    
+    Returns
+    -------
+    None
+
+    See Also
+    --------
+   
+    """
+    import os
+    import json
+    import requests
+
+    # set the base urls
+    base_url='http://www.grants.gov/grantsws/rest/opportunity/details?oppId='
+    #base_url= 'http://www.grants.gov/grantsws/OppDetails?oppId='
+    #document_url = 'http://www.grants.gov/grantsws/rest/oppdetails/att/download/'
+    docDownloadLink='https://www.grants.gov/grantsws/rest/opportunity/att/download/'
+
+    # do a quick reset to the current working directory if relevant
+    if  localPath=='':
+        localPath=os.getcwd()
+    
+    currentSaveDir=os.path.join(localPath,str(OpportunityID))
+    # make the save path dir
     if not os.path.exists(currentSaveDir):
         os.mkdir(currentSaveDir)
-        detailsOut=load_details(twiceIDs)
-        try:
+    detailsOut=load_details(OpportunityID)
+    try:
             fileName=os.path.join(currentSaveDir,'description.txt')
             pdf = open(fileName, 'wb')
             pdf.write( bytes(detailsOut['synopsis']['synopsisDesc'],'utf-8'))
@@ -741,5 +792,24 @@ for twiceIDs in atLeastTwiceIDs:
                         pdf = open(fileName, 'wb')
                         pdf.write(response.content)
                         pdf.close()
-        except:
-            pass
+    except:
+        print('Failed to download documents for '+ str(OpportunityID))
+
+#import json
+#import requests
+
+
+#grantsFindJSON='C:\\Users\\dbullock\\Documents\\code\\gitDir\\USG_grants_crawl\\grantFindsOut.json'
+# Opening JSON file
+#f = open(grantsFindJSON)
+#keywordsData=json.load(f )
+#f.close()
+
+#idList=[]
+#for iKeywords in list(keywordsData.keys()):
+#    idList.extend(keywordsData[iKeywords])
+#import numpy as np
+#uniqueIDs,counts=np.unique(idList, return_counts=True)
+
+#atLeastTwiceIDs=uniqueIDs[counts>=2]
+#storeOutputDirectory='C:\\Users\\dbullock\\Documents\\code\\dataSources\\grantData'
