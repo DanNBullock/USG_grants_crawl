@@ -795,6 +795,88 @@ def downloadGrantsGov_grantDocs(OpportunityID,localPath=''):
     except:
         print('Failed to download documents for '+ str(OpportunityID))
 
+def tupleDictionaries_to_NDarray(tupleDictionary,operation=len):
+    """
+    This function coverts a dictionary with permuted tuples as the keys (e.g. keys = [list 1, list 2, list 3, etc.])
+    and converts it to a count ND array (e.g. len(tupleDictionary[iKey]) for iKeys in list(tupleDictionary.keys()))
+    
+    Think of this as pandas.DataFrame.applymap(), but for dictionaries.
+
+
+    Parameters    ----------
+    tupleDictionary: dictionary
+        A dictionary with permuted tuples as the keys (e.g. keys = [list 1, list 2, list 3, etc.])
+    
+    Returns
+    -------
+    ndArrayHolder : numpy array
+        A N-dimensional count array
+
+    See Also
+    --------
+   
+    """
+    import numpy as np
+    # convert the keys to an array
+    keysArray=np.asarray(list(tupleDictionary.keys()))
+    # create a list to hold the unique labels
+    uniqueDimLabels=[]
+    # iterate through the sets of key elements
+    for iDims in range(keysArray.shape[1]):
+        # append the unique key values for each dimension to the holder
+        uniqueDimLabels.append(list(np.unique(keysArray[:,iDims])))
+    # create a array holder for this 
+    ndArrayHolder=np.zeros([len(iDems) for iDems in  uniqueDimLabels],dtype=np.int32)
+    # iterate through the keys
+    for iKeys in list(tupleDictionary.keys()):
+        # get the current coords associated with the given key
+        indexCoords=[ uniqueDimLabels[iCoords].index(iKeys[iCoords]) for iCoords in range(len(iKeys))]
+        # do the relevant operation and place the output it in the relevant space
+        ndArrayHolder[tuple(indexCoords)]=operation(tupleDictionary[iKeys])
+    return ndArrayHolder
+
+def convertIDdictionary_to_values(grantsDF,opportunityIDdictionary,columnSelect):
+    """
+    This function coverts each value element in a dictionary in which the values are all grant opportunityID values, to the corresponding 
+    value from the relevant column in the grantsDF dataframe.
+
+    Parameters    ----------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov  
+    opportunityIDdictionary: dictionary
+        A dictionary in which the values are all grant opportunityID values.
+    columnSelect: string
+        A string corresponding to a column in the input grantsDF.
+    
+    Returns
+    -------
+    convertedDictionary : dictionary
+        A dictionary in which the each value element in a dictionary is no longer an opportunityID value,
+    but rather, the corresponding value from the relevant column in the grantsDF dataframe.
+
+    See Also
+    --------
+   
+    """
+    # iterate across the dictionary keys
+    for iKeys in opportunityIDdictionary:
+        # get the values for this key
+        currentValues=opportunityIDdictionary[iKeys]
+        # create a holder for the converted values
+        convertedValues=[]
+        # iterate across these values, which are presumably opportunityIDs
+        for iCurrentValues in currentValues:
+            # get the current grantsDF row
+            currentRow=grantsDF.loc[grantsDF['opportunityID'].eq(iCurrentValues)]
+            # find the desired convert value
+            currentConvertValue=currentRow[columnSelect]
+            # append it to the list
+            convertedValues.append(convertedValues)
+        # once all of the converted values have been obtained, set the current-key dictionary value to the replacemnt values
+        opportunityIDdictionary[iKeys]=convertedValues
+    
+    return opportunityIDdictionary
+
 #import json
 #import requests
 
