@@ -1,11 +1,10 @@
-from bs4 import BeautifulSoup
 import xmltodict
 import sys
 import os
 import pandas as pd
 import glob
 
-
+grantXML_or_path='C:\\Users\\dbullock\\Documents\\code\\gitDir\\USG_grants_crawl\\inputData\\GrantsDBExtract20230113v2.xml'
 def grantXML_to_dictionary(grantXML_or_path):
     """
     Convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
@@ -43,7 +42,9 @@ def grantXML_to_dictionary(grantXML_or_path):
             govGrantData_dictionary = xmltodict.parse(grantXML_or_path)
         # convert xml to dictionary            
     # convert to pandas dataframe
-    grantsDF=pd.DataFrame.from_records(govGrantData_dictionary['Grants']['OpportunitySynopsisDetail_1_0'], columns=['OpportunityID', 'OpportunityTitle','OpportunityNumber','AgencyCode', 'AgencyName', 'AwardCeiling', 'AwardFloor', 'EstimatedTotalProgramFunding', 'ExpectedNumberOfAwards', 'Description'])
+    grantsDF=pd.DataFrame.from_records(govGrantData_dictionary['Grants']['OpportunitySynopsisDetail_1_0'], columns=['OpportunityID', 'OpportunityTitle','OpportunityNumber','AgencyCode', 'AgencyName', 'CloseDate','AwardCeiling', 'AwardFloor', 'EstimatedTotalProgramFunding', 'ExpectedNumberOfAwards', 'Description'])
+    # reformat the date
+    grantsDF['CloseDate']=grantsDF['CloseDate'].apply(lambda x: x[0:2] + '/' + x[2:4] + '/' + x[4:8] )
     return grantsDF
 
 def reTypeGrantColumns(grantsDF):
