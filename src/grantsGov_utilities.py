@@ -44,7 +44,7 @@ def grantXML_to_dictionary(grantXML_or_path):
     # convert to pandas dataframe
     grantsDF=pd.DataFrame.from_records(govGrantData_dictionary['Grants']['OpportunitySynopsisDetail_1_0'], columns=['OpportunityID', 'OpportunityTitle','OpportunityNumber','AgencyCode', 'AgencyName', 'CloseDate','AwardCeiling', 'AwardFloor', 'EstimatedTotalProgramFunding', 'ExpectedNumberOfAwards', 'Description'])
     # reformat the date
-    grantsDF['CloseDate']=grantsDF['CloseDate'].apply(lambda x: x[0:2] + '/' + x[2:4] + '/' + x[4:8] )
+    grantsDF['CloseDate']=grantsDF['CloseDate'].apply(lambda x: str(x)[0:2] + '/' + str(x)[2:4] + '/' + str(x)[4:8] )
     return grantsDF
 
 def reTypeGrantColumns(grantsDF):
@@ -127,7 +127,7 @@ def downloadLatestGrantsXML(savePathDir=None):
 
     Parameters
     ----------
-    savePath : str
+    savePathDir : str
         A string path corresponding to the *directory* the user would like the grants.gov xml file downloaded.
         Default value is None, resulting in download to current working directory.
 
@@ -146,15 +146,15 @@ def downloadLatestGrantsXML(savePathDir=None):
     import requests
 
     # check and see what the save path has been set to
-    if savePath == None:
-        savePath = ''
+    if savePathDir == None:
+        savePathDir = ''
     # check if the path exists
-    elif os.path.isdir(savePath):
+    elif os.path.isdir(savePathDir):
         # do nothing, the path is set
         pass
     # if the directory doesn't exist, *don't* make the directory, instead raise an error
     else:
-        raise Exception ('Input save path\n' + savePath + '\ndoes not exist. Create first.')
+        raise Exception ('Input save path\n' + savePathDir + '\ndoes not exist. Create first.')
 
     # file pathing taken care of, begin prep for download
     # grants.gov extract url
