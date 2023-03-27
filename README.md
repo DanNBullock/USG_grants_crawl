@@ -18,16 +18,18 @@ keywords: [grants.gov](https://www.grants.gov/), grants, open science
 - [json](https://docs.python.org/3/library/json.html)
 - [re](https://docs.python.org/3/library/re.html)
 - [itertools](https://docs.python.org/3/library/itertools.html) 
+- [pickle](https://docs.python.org/3/library/pickle.html)
 
 #### Packages
-- [bs4](https://pypi.org/project/bs4/)
 - [xmltodict](https://pypi.org/project/xmltodict/)
 - [numpy](https://pypi.org/project/numpy/)
 - [matplotlib](https://pypi.org/project/matplotlib/)
 - [pandas](https://pypi.org/project/pandas/)
 - [d3blocks](https://pypi.org/project/d3blocks/)
 - [notebook](https://pypi.org/project/notebook/) (Jupyter Notebook)
-
+- [gensim](https://pypi.org/project/gensim/)
+- [nltk](https://pypi.org/project/nltk/)
+- [pyLDAvis](https://pypi.org/project/pyLDAvis/)
 
 ## Project / Codebase overview
 
@@ -37,21 +39,21 @@ This repository contains a series of jupyter notebooks (stored under notebooks) 
 
 Broadly speaking, this collection of notebooks is intended to guide users through an increasingly complex analysis of data derived from grants.gov, as it relates to open science infrastructure.
 
-For descriptions of the specific chapters, see [the readme file contained within the notebooks directory](https://github.com/DanNBullock/USG_grants_crawl/tree/main/notebooks)
+**For descriptions of the specific chapters, see [the readme file contained within the notebooks directory](https://github.com/DanNBullock/USG_grants_crawl/tree/main/notebooks)**
 
 ### Relevant modules
 Within the [src directory](https://github.com/DanNBullock/USG_grants_crawl/blob/main/src/) the [grantsGov_utilities.py file](https://github.com/DanNBullock/USG_grants_crawl/blob/main/src/grantsGov_utilities.py) contains a number of thouroughly documented functions that are used throughout the notebooks.  Feel free to search through these, as later notbooks opt towards cleaner and more succinct code as opposed to rehashing code that has already been used.
 
-### Other relevant contents
+### Other relevant content
 TBD
 ## Project / codebase provenance
-This project's main components are comprised of jupyter notebooks. A future version of this will likely functionalize a number of re-occuring functions, and store these in a repository-specific package (to help with notebook legibility)
+This project's main components are comprised of jupyter notebooks. A number of re-occuring functions (which would also take up substantial page-space, in addition to be repetitive) are stored in the [/src directory](https://github.com/DanNBullock/USG_grants_crawl/tree/main/src) in the [grantsGov_utilities.py](https://github.com/DanNBullock/USG_grants_crawl/blob/main/src/grantsGov_utilities.py) file.
 
 ### Support elements
 
 #### Authors
 
-[Daniel Bullock](https://dannbullock.github.io/), AAAS Fellow
+[Daniel Bullock](https://dannbullock.github.io/), [AAAS](https://www.aaas.org/) [STPF](https://www.aaas.org/programs/science-technology-policy-fellowships) Fellow
 
 #### Contributors
 
