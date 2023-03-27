@@ -69,7 +69,7 @@ In this chapter we drill even further down, and look at term co-occurrence _with
 - Introduction of cosine distance as method for comparing keyword-term usage patterns across agencies
 
 ### Latent Dirichlet Allocation (LDA)
-[link to chapter](https://github.com/DanNBullock/USG_grants_crawl/blob/main/notebooks/LDA.ipynb)
+[link to chapter](https://github.com/DanNBullock/USG_grants_crawl/blob/main/notebooks/GrantsDotGov_LDA.ipynb)
 
 ![alt text](https://github.com/DanNBullock/USG_grants_crawl/blob/main/imgs/Topic-One.PNG?raw=true)
 
