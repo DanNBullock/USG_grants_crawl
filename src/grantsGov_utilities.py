@@ -45,6 +45,9 @@ def grantXML_to_dictionary(grantXML_or_path):
     grantsDF=pd.DataFrame.from_records(govGrantData_dictionary['Grants']['OpportunitySynopsisDetail_1_0'], columns=['OpportunityID', 'OpportunityTitle','OpportunityNumber','AgencyCode', 'AgencyName', 'LastUpdatedDate','AwardCeiling', 'AwardFloor', 'EstimatedTotalProgramFunding', 'ExpectedNumberOfAwards', 'Description'])
     # reformat the date
     grantsDF['LastUpdatedDate']=grantsDF['LastUpdatedDate'].apply(lambda x: str(x)[0:2] + '/' + str(x)[2:4] + '/' + str(x)[4:8] )
+    # replace dashes with spaces in the text, to match altered keywords
+    # I don't know why I have to force specify string, descriptions should already be strings
+    grantsDF['Description']=grantsDF['Description'].apply(lambda x: str(x).replace('-',' ') )
     return grantsDF
 
 def reTypeGrantColumns(grantsDF):
@@ -175,15 +178,15 @@ def downloadLatestGrantsXML(savePathDir=None):
             for chunk in r.iter_content(chunk_size=chunk_size):
                 fd.write(chunk)
         print(str(os.path.getsize(save_path)) + ' bytes file downloaded from\n' + url)
-        print('Saved to ' + savePath)
+        print('Saved to ' + savePathDir)
 
     # establish save path
-    zipSavePath=os.path.join(savePath,fullFileName)
+    zipSavePath=os.path.join(savePathDir,fullFileName)
     # download
     download_url(queryURL, zipSavePath, chunk_size=128)
     # unzip in place
     with zipfile.ZipFile(zipSavePath, 'r') as zip_ref:
-        zip_ref.extractall(savePath)
+        zip_ref.extractall(savePathDir)
     print('Downloaded file unZipped, deleting original file.')
     # should result in a file with exactly the same name, ecept XML instead of .zip
     os.remove(zipSavePath)
@@ -699,6 +702,7 @@ def detectLocalGrantData(localPath='',forceDownload=True):
             if os.path.isfile(glob.glob(os.path.join(localPath,'GrantsDBExtract*.xml'))[-1]):
                 # if it exists get the path
                 pathToXML=glob.glob(os.path.join(localPath,'GrantsDBExtract*.xml'))[-1]
+                print(pathToXML)
                 # and load it
                 grantsDF=grantXML_to_dictionary(pathToXML)
         except:
