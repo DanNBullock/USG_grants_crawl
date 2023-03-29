@@ -1,5 +1,7 @@
 # USG Grants Crawl
 
+![alt text](https://github.com/DanNBullock/USG_grants_crawl/blob/main/imgs/newGrantChord.PNG?raw=true)
+
 (branding & badges go here)
 
 ## Overview description
