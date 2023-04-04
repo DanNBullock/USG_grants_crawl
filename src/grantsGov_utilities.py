@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import glob
 
-grantXML_or_path='C:\\Users\\dbullock\\Documents\\code\\gitDir\\USG_grants_crawl\\inputData\\GrantsDBExtract20230113v2.xml'
+
 def grantXML_to_dictionary(grantXML_or_path):
     """
     Convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
@@ -882,21 +882,279 @@ def convertIDdictionary_to_values(grantsDF,opportunityIDdictionary,columnSelect)
     
     return opportunityIDdictionary
 
-#import json
-#import requests
+# ok, now we might be interested in grant data from the nsf, lets go and get that
 
+def genNSFdownloadURLs():
+    """
+    This funtion generates the paths to the NSF grant data files that are stored at www.nsf.gov/awardsearch/.
+    Note that it will generate files up to the current year.
 
-#grantsFindJSON='C:\\Users\\dbullock\\Documents\\code\\gitDir\\USG_grants_crawl\\grantFindsOut.json'
-# Opening JSON file
-#f = open(grantsFindJSON)
-#keywordsData=json.load(f )
-#f.close()
+    Inputs: None
+    Outputs: 
+        downloadURLs: list
+            A list of strings corresponding to the download URLs for the NSF grant data files.
+    """
+    import datetime
+    # get the current year
+    currentYear=datetime.datetime.now().year
+    # create a holder for the download URLs
+    downloadURLs=[]
+    # append the historical data URL
+    downloadURLs.append('https://www.nsf.gov/awardsearch/download?DownloadFileName=Historical&All=true')
+    #as of 04/04/2022, the earliest year of data is 1959
+    firstYear=1959
+    # iterate across the years
+    for iYears in range(firstYear,currentYear+1):
+        # create the download URL
+        currentURL='https://www.nsf.gov/awardsearch/download?DownloadFileName='+str(iYears)+'&All=true'
+        # append it to the holder
+        downloadURLs.append(currentURL)
+    return downloadURLs
 
-#idList=[]
-#for iKeywords in list(keywordsData.keys()):
-#    idList.extend(keywordsData[iKeywords])
-#import numpy as np
-#uniqueIDs,counts=np.unique(idList, return_counts=True)
+def downloadNSFgrantsData(downloadURLs,saveDirectory=None):
+    """
+    This function downloads the NSF grant data files that are stored at www.nsf.gov/awardsearch/.
+    Note that it will download files up to the current year.
 
-#atLeastTwiceIDs=uniqueIDs[counts>=2]
-#storeOutputDirectory='C:\\Users\\dbullock\\Documents\\code\\dataSources\\grantData'
+    Inputs: 
+        downloadURLs: list
+            A list of strings corresponding to the download URLs for the NSF grant data files.
+        saveDirectory: string
+            A string corresponding to the directory in which the downloaded files should be saved.
+    Outputs: None
+    """
+    if saveDirectory is None:
+        saveDirectory=os.getcwd()+os.sep+'NSF_grant_data'
+        # create the save directory if it doesn't exist
+        if not os.path.exists(saveDirectory):
+            os.makedirs(saveDirectory)
+
+    import requests
+    import os
+    import zipfile
+    outPaths=[]
+    # iterate across the download URLs
+    for iURLs in downloadURLs:
+        # get the file name
+        fileName=iURLs.split('=')[-2].split('&')[0]+'.zip'
+        # create the save path
+        savePath=os.path.join(saveDirectory,fileName)
+        # download the file
+        response = requests.get(iURLs)
+        # Write content in pdf file
+        currFile = open(savePath, 'wb')
+        currFile.write(response.content)
+        currFile.close()
+        # unzip the file
+        
+        with zipfile.ZipFile(savePath, 'r') as zip_ref:
+            zip_ref.extractall(saveDirectory)
+        # append the save path to the holder
+        outPaths.append(savePath)
+        # print an indicator of how many files have been downloaded
+        print('Downloaded '+str(len(outPaths))+' of '+str(len(downloadURLs))+' files')
+    # remove the zip files
+    for iPaths in outPaths:
+        os.remove(iPaths)
+    return
+
+def produceJSONfromXMLs(xmlDirectory,savePath=None):
+    '''
+    This function converts the NSF XML files in the input directory to a single omnibus JSON file.
+    
+    '''
+    # we use BeautifulSoup to repair XML files if they are not valid 
+    from bs4 import BeautifulSoup
+    import glob
+    import xmltodict
+    import json
+    import xml
+    # generate the save path if it is not provided
+    if savePath is None:
+        savePath=os.path.join(xmlDirectory,'NSF_grants.json')
+    # get the list of XML files
+    xmlFiles=glob.glob(xmlDirectory+os.sep+'*.xml')
+    # create a holder for the JSON data
+    jsonData=[]
+    # iterate across the XML files
+    for iFiles in xmlFiles:
+        # open the XML file
+        currXml=open(iFiles).read()
+        # determine if it is a valid XML file
+        try:
+            currentJSON=xmltodict.parse(currXml)
+        except:
+            try:
+                # throw a warning indicating that the file is not valid
+                print('Warning: '+iFiles+' is not a valid XML file.')
+                print('Attempting to repair the file.')
+                # if it is not a valid XML file, use BeautifulSoup to repair it
+                currXml = BeautifulSoup(currXml, 'xml')
+                currentJSON=xmltodict.parse(currXml.prettify())
+            except:
+                # if it is still not a valid XML file, throw an error
+                print('Error: '+iFiles+' is not a valid XML file.')
+                print('Skipping this file.')
+                # create an error log file in this directory if it doesn't exist
+                errorLogPath=os.path.join(xmlDirectory,'xml2json_errorLog.txt')
+                if not os.path.exists(errorLogPath):
+                    with open(errorLogPath, 'w') as outfile:
+                        outfile.write('Error: '+iFiles+' is not a valid XML file.')
+                #   and append the error to the error log file
+                else:
+                    with open(errorLogPath, 'a') as outfile:
+                        outfile.write('Error: '+iFiles+' is not a valid XML file.')
+                # and
+                continue
+        # for the currentJSON['rootTag']['Award']['AbstractNarration'] field, we need to convert the html entities to unicode
+        # first, we need to convert the html entities to unicode
+        if currentJSON['rootTag']['Award']['AbstractNarration'] is not None:
+            soup=BeautifulSoup(currentJSON['rootTag']['Award']['AbstractNarration'])
+            currentJSON['rootTag']['Award']['AbstractNarration']=soup.get_text()
+            #currentJSON['rootTag']['Award']['AbstractNarration']=currentJSON['rootTag']['Award']['AbstractNarration'].replace('<br>','\n')
+        # append the JSON data to the holder as a new record
+        jsonData.append(currentJSON)
+        
+    # save the JSON data
+    with open(savePath, 'w') as outfile:
+        json.dump(jsonData, outfile)
+    # print a message indicating the number of records in the JSON file, and the fields in the JSON file
+    print('The JSON file contains '+str(len(jsonData))+' records.')
+    print('The JSON file contains the following fields:')
+    print(jsonData[0]['rootTag']['Award'].keys())
+    # also print the size of the JSON file on disk
+    print('The JSON file is '+str(os.path.getsize(savePath)/1e6)+' MB on disk.')
+    # remove the XML files
+    for iFiles in xmlFiles:
+        os.remove(iFiles)
+    return
+
+def detectLocalNSFData(dataDirectory=None):
+    '''
+    This function detects whether the local NSF grant data is present in the form of
+    the converted omnibus json file.  If it is not present it will download and 
+    convert the data, and return the path to the converted json file.  Otherwise,
+    it will search the specified directory and subdirectories for the converted json,
+    and return the path to the converted json file.
+    Inputs:
+        dataDirectory: string
+            A string corresponding to the directory in which the converted json file should be located.
+    Outputs:
+        jsonPath: string
+            A string corresponding to the path to the converted json file.   
+    '''
+    import glob
+    import os
+    # if the data directory is not provided, use the current working directory
+    if dataDirectory is None:
+        dataDirectory=os.getcwd()
+    # get the list of json files
+    jsonFiles=glob.glob(dataDirectory+os.sep+'*.json')
+    # iterate across the json files
+    for iFiles in jsonFiles:
+        # if the file is the converted json file, return the path
+        if 'NSF_grants' in iFiles:
+            print('The local NSF grant data was found at '+iFiles+'.')
+            return iFiles
+    # if the converted json file is not found, download and convert the data
+    print('local NSF grant data was not found.  Downloading and converting the data.')
+    downloadURLs=genNSFdownloadURLs()
+    downloadNSFgrantsData(downloadURLs,saveDirectory=dataDirectory)
+    # use produceJSONfromXMLs to convert the XML files to a single json file
+    produceJSONfromXMLs(dataDirectory,savePath=None)
+    # get the list of json files
+    jsonFiles=glob.glob(dataDirectory+os.sep+'*.json')
+    # iterate across the json files
+    for iFiles in jsonFiles:
+        # if the file is the converted json file, return the path
+        if 'NSF_grants' in iFiles:
+            return iFiles
+    # if the converted json file is not found, return None
+    return None
+
+def NSFjson2DF(jsonPathOrFile):
+    '''
+    This function converts the NSF json file to a pandas dataframe.
+    Inputs:
+        jsonPathOrFile: string or file
+            A string corresponding to the path to the NSF json file, or a dict object corresponding to the NSF converted json file.
+    Outputs:
+        NSFgrantDF: pandas dataframe containing the NSF grant award data
+    '''
+    import pandas as pd
+    import json
+    import os
+    print('Attempting load of ' + jsonPathOrFile)
+    # if the input is a string, determine if it is a path to a single file or if it is json formatted text
+    if type(jsonPathOrFile) is str:
+        # if the input is a path to a single file, load the json file
+        if os.path.isfile(jsonPathOrFile):
+            print('Loading .json file'+jsonPathOrFile)
+            with open(jsonPathOrFile) as f:
+                NSFjson=json.load(f)
+        # if the input is json formatted text, load the json text
+        else:
+            print('Parsing .json text')
+            NSFjson=json.loads(jsonPathOrFile)
+    # if the input is a dict object, load the dict object
+    elif type(jsonPathOrFile) is dict:
+        print('Parsing .json dict object')
+        NSFjson=jsonPathOrFile
+    else:
+        print('Error: The input to NSFjson2DF must be a string or a dict object.')
+        print('Input type: '+str(type(jsonPathOrFile)))
+        return None
+    # create a holder for the data
+    NSFdata=[]
+    # iterate across the records in the json file
+    for iRecord in NSFjson:
+        # extract the data from the record
+        currData=iRecord['rootTag']['Award']
+        # append the data to the holder
+        NSFdata.append(currData)
+    # convert the data to a pandas dataframe
+    NSFgrantDF=pd.DataFrame(NSFdata)
+    return NSFgrantDF
+
+def isempty(inputContent):
+    '''
+    This function determines whether the input is null, empty, '', zero, or NaN, or equivalent.
+    Is this ugly?  Yes it is.
+    Inputs:
+        inputContent: any
+            Any input content.
+    Outputs:    
+        isEmpty: boolean
+            A boolean indicating whether the input is null, empty, '', zero, or NaN, or equivalent.
+    '''
+    import numpy as np
+    try:
+        # if the input is null, return True
+        if inputContent is None:
+            return True
+        else:
+            raise Exception
+    except:
+        try:
+            # if the input is empty, return True
+            if inputContent=='':
+                return True
+            else:
+                raise Exception
+        except:
+            try:
+                # if the input is zero, return True
+                if inputContent==0:
+                    return True
+                else:
+                    raise Exception
+            except:
+                try:
+                    # if the input is NaN, return True
+                    if np.isnan(inputContent):
+                        return True
+                    else:
+                        raise Exception
+                except:
+                    # otherwise, return False
+                    return False
