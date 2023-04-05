@@ -610,6 +610,237 @@ def searchInputListsForKeywords(inputLists,keywordList):
         grantFindsOut[iKeywords]=grantsFound
     return grantFindsOut
 
+# open the grants json file as a dictionary
+grantsJsonPath='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NSF_grant_data/NSF_grants.json'
+keywordTable='/media/dan/HD4/coding/gitDir/USG_grants_crawl/OSterms_LeeChung2022.csv'
+import json
+with open(grantsJsonPath) as f:
+    grantsDict=json.load(f)
+# load the keywords table
+import pandas as pd
+keywordsDF=pd.read_csv(keywordTable)
+keywordList=keywordsDF['terms']
+inputLists=[iAward['rootTag']['Award']['AbstractNarration'] for iAward in grantsDict]
+
+def searchInputListsForKeywords_dask(inputLists,keywordList):
+    """
+    Divides up the items in the inputLists--for items whose description includes
+    an item from the input keywordList variable--into groups associated by keyword.
+
+    Returns a dictionary wherein the keys are keywords and the values are lists of items
+    wherein the the keyword was found in the associated description.
+
+    Uses dask if available to parallelize the search.
+
+    Parameters
+    ----------
+    inputLists : list of lists
+        A list of lists wherein each list contains a set of items to be assessed for keyword occurrences. 
+    keywordList : list of strings
+        A list of strings corresponding to the keywords one is interested in assessing the occurrences of. 
+
+    Returns
+    -------
+    grantFindsOut : dictionary
+        A a dictionary wherein the keys are keywords and the values are N long boolean vectors indicating
+    whether the keyword was found in the associated description.
+
+    See Also
+    --------
+    grants_by_Agencies : Divides up the grant IDs ('OpportunityID') from the input grantsDF by top level agency.
+    """
+    import pandas as pd
+    import re
+    import time
+    import numpy as np
+    # if inputLists is a series, then convert it to a list
+    if type(inputLists)==pd.core.series.Series:
+        inputLists=inputLists.values.tolist()
+
+    # create a dictionary in which each each key is a keyword, and the value is a blank boolean vector of length N, where N is the number of items in the inputLists
+    # first create a blank boolean vector of length N that will be placed in all dictionary entries
+    blankBoolVec=[False]*len(inputLists)
+    # then create the dictionary itself
+    grantFindsOut={}
+    # then populate the dictionary with the blank boolean vectors
+    for iKeywords in keywordList:
+        grantFindsOut[iKeywords]=blankBoolVec
+    # next we compile all of the regex searches that we will perform
+    # we replace dashes with spaces to be insensitive to variations in hyphenation behaviors
+    compiledRegexList=[re.compile('\\b'+iKeywords.lower().replace('-',' ')+'\\b') for iKeywords in keywordList]
+
+    # next define the function that will be used to search the input text for the compiled regex
+    # we do this so that we can parallelize the search
+    def searchInputForCompiledRegex(inputText,compiledRegex):
+        """
+        Searches the input text for the compiled regex and returns True if found, False if not found.
+        Function is used to parallelize the search for keywords in the input text.
+        """
+        # case insensitive find for the keyword phrase
+        # use try except to handle the case where there is no description field
+        try:
+        # get rid of dashes to be insensitive to variations in hyphenation behaviors
+            if bool(compiledRegex.search(inputText.lower().replace('-',' '))):
+                    #append the ID if found
+                    return True
+            else:
+                return False
+        except:
+            # do nothing, if there's no description field, then the word can't be found
+            return False
+
+    # check if dask is available
+    try:
+        import dask
+        #import dask.dataframe as dd
+        import dask.bag as db
+        import dask.multiprocessing
+        import dask.distributed as dd
+        from dask.diagnostics import ProgressBar
+        import multiprocessing
+        from dask.distributed import Client, progress
+        # if dask is available, then use it to parallelize the search
+
+        # first find the number of cores on the machine
+        numCores=multiprocessing.cpu_count()
+        # establish a dask client with the number of cores minus 2
+
+
+        # redefining it here, I guess?
+        
+            # next define the function that will be used to search the input text for the compiled regex
+        # we do this so that we can parallelize the search
+       
+        def searchInputForCompiledRegex(inputText,compiledRegex):
+            """
+            Searches the input text for the compiled regex and returns True if found, False if not found.
+            Function is used to parallelize the search for keywords in the input text.
+            """
+            # case insensitive find for the keyword phrase
+            # use try except to handle the case where there is no description field
+            try:
+            # get rid of dashes to be insensitive to variations in hyphenation behaviors
+                if bool(compiledRegex.search(inputText.lower().replace('-',' '))):
+                        #append the ID if found
+                        return True
+                else:
+                    return False
+            except:
+                # do nothing, if there's no description field, then the word can't be found
+                return False
+        
+        results=[]
+        for iKeywords in keywordList:
+            for iInput in inputLists:
+                tempResult=dask.delayed(searchInputForCompiledRegex(iInput,iKeywords))
+                results.append(tempResult)
+        
+        with dd.Client(n_workers=numCores-2) as client:
+            searchResults=dd.compute(*results,scheduler='processes')
+        
+        # now reshape the searchResults into an array
+        searchResults=np.array(searchResults).reshape(len(keywordList),len(inputLists))
+        # now convert the array into a dictionary
+        for iKeywords in range(len(keywordList)):
+            grantFindsOut[keywordList[iKeywords]]=searchResults[iKeywords,:]
+
+
+
+                
+
+
+
+
+        # create a dask dataframe from the inputLists
+        daskDF=dd.from_pandas(pd.DataFrame(inputLists),npartitions=4)
+        # create a dask dataframe from the compiledRegexList
+        daskCompiledRegexList=dd.from_pandas(pd.DataFrame(compiledRegexList))
+        # use the daskDF and daskCompiledRegexList to parallelize the search across the inputLists, applying searchInputForCompiledRegex for each daskCompiledRegexList entry
+        daskSearch=daskDF.map(lambda x: [searchInputForCompiledRegex(x,iRegex) for iRegex in compiledRegexList])
+        testOut=daskSearch.compute()
+
+        # next we will parallelize a nested loop, where the outer loop is across the keywords, and the inner loop is across the inputLists
+        # this is because there are ~500000 items in the inputLists, and > 100 keywords, the major slowdown is looping across the inputLists
+        # as such, we can do a regular loop across the keywords, and then use dask to parallelize the search across the inputLists
+        # include a progress bar
+        # create a dask bag from the inputLists
+        daskBag=db.from_sequence(inputLists,npartitions=4)
+
+
+ 
+        # because there are ~500000 items in the inputLists, and > 100 keywords, the major slowdown is looping across the inputLists
+        # as such, we can do a regular loop across the keywords, and then use dask to parallelize the search across the inputLists
+        # include a progress bar
+        # create a dask bag from the inputLists
+        daskBag=db.from_sequence(inputLists,npartitions=4)
+        
+        for iKeywords,iCompiledSearch in zip(keywordList,compiledRegexList):
+            print('Searching for keyword: '+iKeywords)
+            #start timer
+            start=time.time()
+            # use the dask bag to parallelize the search across the inputLists
+            daskSearch=daskBag.map(lambda x: searchInputForCompiledRegex(x,iCompiledSearch))
+            # convert the dask bag to list
+            boolVec=daskSearch.compute()
+            # store the boolean vector in the output dictionary
+            grantFindsOut[iKeywords]=boolVec
+            #print the number of items found
+            print('Number of items found: '+str(sum(boolVec)))
+            #print time for this loop
+            print('Time for this keyword: '+iKeywords + ' = '+str(time.time()-start))
+
+        # close the dask client
+        client.close()
+    except:
+        # if dask is not available, then use a regular loop
+        for iKeywords,iCompiledSearch in zip(keywordList,compiledRegexList):
+            for iRows,iListing in enumerate(inputLists):
+                # case insensitive find for the keyword phrase
+                # use try except to handle the case where there is no description field
+                try:
+                    # get rid of dashes to be insensitive to variations in hyphenation behaviors
+                    if bool(iCompiledSearch.search(iListing.lower().replace('-',' '))):
+                        #append the ID if found
+                        grantFindsOut[iKeywords][iRows]=True
+                except:
+                    # do nothing, if there's no description field, then the word can't be found and the false remains in place
+                    pass
+    return grantFindsOut
+
+
+
+def applyKeywordSearch_NSF(inputDF,keywordList):
+    """
+    Applies the desired regex based keyword search to the relevant field of the NSF dataframe ('AbstractNarration') and
+    outputs a dictionary wherein the keys are keywords and the values the 'AwardID' values for the grants in which the
+    keyword was found in the associated description.
+    Inputs:
+        inputDF: pandas dataframe
+            The dataframe containing the NSF grant data
+
+        keywordList:  list of strings
+            A list of strings corresponding to the keywords one is interested in assessing the occurrences of
+    Outputs:
+        grantFindsOut: dictionary
+            A dictionary wherein the keys are keywords and the values the 'AwardID' values for the grants in which the
+            keyword was found in the associated description.
+    """
+    import pandas as pd
+    from itertools import compress
+    # get the abstract narration field
+    abstractNarrations=inputDF['AbstractNarration'].values.tolist()
+    # apply the keyword search
+    boolDictionaryKeywords=searchInputListsForKeywords_dask(abstractNarrations,keywordList)
+    # convert the boolean vectors to lists of award IDs for each keyword
+    # first get the award IDs
+    awardIDs=inputDF['AwardID'].values.tolist()
+    # then convert the boolean vectors to lists of award IDs
+    awardIDLists={}
+    for iKeywords in boolDictionaryKeywords.keys():
+        awardIDLists[iKeywords]=list(compress(awardIDs,boolDictionaryKeywords[iKeywords]))
+    return awardIDLists
+
+
 #def evalGrantCoOccurrence(dictionariesList,formatOut='dictionary'):
 #    """
 #    DOESN'T WORK
@@ -992,6 +1223,7 @@ def downloadNSFgrantsData(downloadURLs,saveDirectory=None):
     import requests
     import os
     import zipfile
+    import tarfile
     outPaths=[]
     # iterate across the download URLs
     for iURLs in downloadURLs:
@@ -1005,10 +1237,15 @@ def downloadNSFgrantsData(downloadURLs,saveDirectory=None):
         currFile = open(savePath, 'wb')
         currFile.write(response.content)
         currFile.close()
-        # unzip the file
-        
-        with zipfile.ZipFile(savePath, 'r') as zip_ref:
-            zip_ref.extractall(saveDirectory)
+        # check if it is a zip or a tar file
+        if fileName.endswith('.zip'):
+            # unzip the file
+            with zipfile.ZipFile(savePath, 'r') as zip_ref:
+                zip_ref.extractall(saveDirectory)
+        elif fileName.endswith('.tar'):
+            # untar the file
+            with tarfile.open(savePath, "r:") as tar_ref:
+                tar_ref.extractall(saveDirectory)
         # append the save path to the holder
         outPaths.append(savePath)
         # print an indicator of how many files have been downloaded
@@ -1075,7 +1312,7 @@ def produceJSONfromXMLs(xmlDirectory,savePath=None):
         # for the currentJSON['rootTag']['Award']['AbstractNarration'] field, we need to convert the html entities to unicode
         # first, we need to convert the html entities to unicode
         if currentJSON['rootTag']['Award']['AbstractNarration'] is not None:
-            soup=BeautifulSoup(currentJSON['rootTag']['Award']['AbstractNarration'])
+            soup=BeautifulSoup(currentJSON['rootTag']['Award']['AbstractNarration'],'html.parser')
             currentJSON['rootTag']['Award']['AbstractNarration']=soup.get_text().replace('<br/>','\n')
             #currentJSON['rootTag']['Award']['AbstractNarration']=currentJSON['rootTag']['Award']['AbstractNarration'].replace('<br>','\n')
         # also implement the directorate remapping here
@@ -1088,7 +1325,29 @@ def produceJSONfromXMLs(xmlDirectory,savePath=None):
                 # remap the directorate name
                 currentJSON['rootTag']['Award']['Organization']['Directorate']['LongName']=directorateRemap.loc[currentInvalidNameIndex,'fixedName']
         except:
-            print('Directorate remapping failed for '+currentJSON['rootTag']['Award']['AwardID'])
+            try:
+                # if the longNamefield is empty, check the division field
+                if currentJSON['rootTag']['Award']['Organization']['Division']['LongName'] not in validDirectorateNames:
+                    # get the current invalid directorate name
+                    currentInvalidName=currentJSON['rootTag']['Award']['Organization']['Division']['LongName']
+                    # find its index in the directorate remap file
+                    currentInvalidNameIndex=directorateRemap.loc[directorateRemap['foundName']==currentInvalidName].index[0]
+                    # remap the directorate name
+                    currentJSON['rootTag']['Award']['Organization']['Directorate']['LongName']=directorateRemap.loc[currentInvalidNameIndex,'fixedName']
+            except:
+                try:
+                    # if this still fails, check if the field is empty, and then convert it to a "None" string
+                    if currentJSON['rootTag']['Award']['Organization']['Division']['LongName'] not in validDirectorateNames:
+                        # get the current invalid directorate name
+                        currentInvalidName=currentJSON['rootTag']['Award']['Organization']['Division']['LongName']
+                        if isempty(currentInvalidName):
+                            currentInvalidName='None'
+                            # remap the directorate name
+                            currentJSON['rootTag']['Award']['Organization']['Directorate']['LongName']=currentInvalidName
+                        else:
+                            print(currentInvalidName)
+                except:
+                    print('Directorate remapping failed for '+currentJSON['rootTag']['Award']['AwardID'])
 
         
         # append the JSON data to the holder as a new record
@@ -1107,6 +1366,236 @@ def produceJSONfromXMLs(xmlDirectory,savePath=None):
     for iFiles in xmlFiles:
         os.remove(iFiles)
     return
+
+def produceJSONfromXMLs_dask(xmlDirectory=None,savePath=None):
+    '''
+    This function converts the XML files in the specified directory to a JSON file.
+    Inputs:
+        xmlDirectory: string
+            A string corresponding to the directory in which the XML files are located.
+        savePath: string
+            A string corresponding to the path to which the JSON file should be saved.
+    Outputs:
+        JSONpath: string
+            A string corresponding to the path to which the JSON file was saved.   
+    '''
+    import glob
+    import os
+    import xmltodict
+    import json
+    import pandas as pd
+    from bs4 import BeautifulSoup
+    from dask import delayed
+    import dask.bag as db
+    import dask
+    from dask.diagnostics import ProgressBar
+    from dask.distributed import Client, progress
+    import multiprocessing
+    import time
+    # start the timer
+    startTime=time.time()
+    # if the xml directory is not provided, use the current working directory
+    if xmlDirectory is None:
+        xmlDirectory=os.getcwd()
+    # if the save path is not provided, use the current working directory
+    if savePath is None:
+        savePath=xmlDirectory+os.sep+'NSF_grants.json'
+    # get the list of XML files
+    xmlFiles=glob.glob(xmlDirectory+os.sep+'*.xml')
+    # load the directorate remap file
+    directorateRemap=pd.read_csv('../NSF_directorate_remap.csv')
+    # get the unique valid directorate names
+    validDirectorateNames=directorateRemap['fixedName'].unique()
+
+    # create a logfile to record errors
+    errorLogPath=xmlDirectory+os.sep+'errorLog.txt'
+    # create a new file if it doesn't exist
+    if not os.path.exists(errorLogPath):
+        with open(errorLogPath, 'w') as outfile:
+            outfile.write('')
+    
+
+
+    # first we define the functions we will use to process the XML files
+
+    def applyFixesToRecord_NSF(inputRecord):
+        """
+        This function applies the established fixes to the NSF record.
+        Inputs:
+            inputRecord: dictionary
+                A dictionary containing the JSON data.
+        Outputs:
+            inputRecord: dictionary
+                A dictionary containing the JSON data.      
+        
+        """
+        # first, we need to convert the html entities to unicode
+        try: 
+            if inputRecord['rootTag']['Award']['AbstractNarration'] is not None:
+                soup=BeautifulSoup(inputRecord['rootTag']['Award']['AbstractNarration'],'html.parser')
+                inputRecord['rootTag']['Award']['AbstractNarration']=soup.get_text().replace('<br/>','\n')
+        except: 
+            # try and create an informative error log message
+            try:
+            # open the file for appending
+                 with open(errorLogPath, 'a') as outfile:
+                    outfile.write('Error locating AbstractNarration field for '+inputRecord['rootTag']['Award']['AwardID']+'\r')
+            #print('Error locating AbstractNarration field for '+inputRecord['rootTag']['Award']['AwardID'])
+            except:
+                pass
+        # next implement the directorate remapping 
+        try:
+            if inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName'] not in validDirectorateNames:
+                # get the current invalid directorate name
+                currentInvalidName=inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName']
+                # find its index in the directorate remap file
+                currentInvalidNameIndex=directorateRemap.loc[directorateRemap['foundName']==currentInvalidName].index[0]
+                # remap the directorate name
+                inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName']=directorateRemap.loc[currentInvalidNameIndex,'fixedName']
+        # if the directorate field is empty, check the division field
+        except:
+            try:
+                # if the longNamefield is empty, check the division field
+                if inputRecord['rootTag']['Award']['Organization']['Division']['LongName'] not in validDirectorateNames:
+                    # get the current invalid directorate name
+                    currentInvalidName=inputRecord['rootTag']['Award']['Organization']['Division']['LongName']
+                    # find its index in the directorate remap file
+                    currentInvalidNameIndex=directorateRemap.loc[directorateRemap['foundName']==currentInvalidName].index[0]
+                    # remap the directorate name
+                    inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName']=directorateRemap.loc[currentInvalidNameIndex,'fixedName']
+            except:
+                try:
+                    # if this still fails, check if the field is empty, and then convert it to a "None" string
+                    if inputRecord['rootTag']['Award']['Organization']['Division']['LongName'] not in validDirectorateNames:
+                        # get the current invalid directorate name
+                        currentInvalidName=inputRecord['rootTag']['Award']['Organization']['Division']['LongName']
+                        if isempty(currentInvalidName):
+                            currentInvalidName='None'
+                            # remap the directorate name
+                            inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName']=currentInvalidName
+                        else:
+                            with open(errorLogPath, 'a') as outfile:
+                                outfile.write('Directorate remapping failed for '+inputRecord['rootTag']['Award']['AwardID']+'\r')
+                                outfile.write(currentInvalidName + ' not found in directorate remap file\r')
+                except:
+                    with open(errorLogPath, 'a') as outfile:
+                        outfile.write('Directorate remapping failed for '+inputRecord['rootTag']['Award']['AwardID']+'\r')
+                        try:
+                            outfile.write(str(inputRecord['rootTag']['Award']['Organization']) + ' cause of error\r')
+                        except:
+                            pass
+
+        # TODO: implement future record fixes here
+        return inputRecord
+
+    def convertXMLtoJSON_NSF(iFile):
+        """
+        This function converts a single XML file NSF grant application record to JSON.  
+        It also includes several fixes for invalid XML files and other issues that have arisen in the NSF dataset.
+        Inputs:
+            iFile: string path or xml text
+                A string corresponding to the path to the XML file, or the XML text itself.
+        Outputs:
+            currentJSON: dictionary
+                A dictionary containing the JSON data.      
+        """
+        # create a holder for the JSON data
+        currentJSON={}
+
+        # determine if the input is a path or text
+        if type(iFile)==str:
+            # check if the file exists
+            if os.path.exists(iFile):
+                # open the XML file
+                currXml=open(iFile).read()
+            # if it's not a path, assume it's xml text
+            else:
+                currXml=iFile
+            # determine if it is a valid XML file
+            try:
+                currentJSON=xmltodict.parse(currXml)
+            except:
+                try:
+                    # throw a warning indicating that the file is not valid
+                    with open(errorLogPath, 'a') as outfile:
+                        outfile.write('Warning: \r'+iFile+'\r is not a valid XML file.\r')
+                        outfile.write('Attempting to repair the file.\r')
+                    # if it is not a valid XML file, use BeautifulSoup to repair it
+                    currXml = BeautifulSoup(currXml, 'xml')
+                    currentJSON=xmltodict.parse(currXml.prettify())
+                except:
+                    # if it is still not a valid XML file, throw an error
+                    with open(errorLogPath, 'a') as outfile:
+                        outfile.write('Error: \r'+iFile+'\r is not a valid XML file.\r')
+                        outfile.write('Skipping this file.\r')
+        # if its not a string, then it's neither a path nor xml text
+        else: 
+            # throw an error indicating that the input is not valid
+            with open(errorLogPath, 'a') as outfile:
+                outfile.write('Error: \r'+iFile+'\r of type '+str(type(iFile))+' is not a valid input.\r')
+            
+        # check if the currentJSON is empty
+        if currentJSON:
+            # if it's not empty then begin implementing the fixes
+            currentJSON=applyFixesToRecord_NSF(currentJSON)
+        else:
+            # if it's empty then a warning has already been thrown
+            pass
+        return currentJSON
+
+    # now we use a dask bag to process the XML files in parallel
+    # first find the number of cores on the machine
+    numCores=multiprocessing.cpu_count()
+    # establish a dask client with the number of cores minus 2
+    client = Client(n_workers=numCores-2)
+    # print a message indicating the number of cores
+    print('Using '+str(numCores-2)+' cores to process the XML files.')
+    #
+
+
+    # first we create a dask bag from the list of XML files
+    print('Creating a dask bag from the list of XML files.')
+    xmlFilesBag=db.from_sequence(xmlFiles)
+    # then we use the dask bag to process the XML files in parallel
+
+    print('Processing the XML files in parallel.')
+    jsonFilesBag=xmlFilesBag.map(convertXMLtoJSON_NSF)
+    xmlFilesBag.persist()
+    progress(jsonFilesBag)
+    # finally we convert the dask bag to a list
+    # display a progress bar using the distributed client
+    print('Converting the dask bag to a list.')
+    jsonFilesList=jsonFilesBag.compute()
+    # and then we convert the list to a pandas dataframe
+    print('Converting the list to a pandas dataframe.')
+    jsonFilesDF=pd.DataFrame(jsonFilesList)
+    # and then we convert the dataframe to a dictionary
+    print ('Converting the pandas dataframe to a dictionary.')
+    jsonFilesDict=jsonFilesDF.to_dict('records')
+    # and finally we convert the dictionary to a JSON file
+    print('Converting the dictionary to a JSON file.')
+    jsonFiles=json.dumps(jsonFilesDict,indent=4)
+    # write the JSON file to disk  
+    with open(savePath, 'w') as outfile:
+        outfile.write(jsonFiles)
+    outfile.close()
+    # print a message indicating the number of records in the JSON file, and the fields in the JSON file
+    print('The JSON file contains '+str(len(jsonFilesDict))+' records.')
+    print('The JSON file contains the following fields:')
+    print(jsonFilesDict[0]['rootTag']['Award'].keys())
+    # also print the size of the JSON file on disk
+    print('The JSON file is '+str(os.path.getsize(savePath)/1e6)+' MB on disk.')
+    # print a message indicating that the conversion is complete in the relevant amount of time
+    print('The conversion is complete in '+str(time.time()-startTime)+' seconds.')
+    # remove the XML files
+    for iFiles in xmlFiles:
+        os.remove(iFiles)
+    # clear the dask client
+    client.close()
+    # return the path to the JSON file
+    return savePath
+    
+
 
 def detectLocalNSFData(dataDirectory=None):
     '''
