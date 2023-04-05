@@ -550,6 +550,66 @@ def searchGrantsDF_for_keywords(grantsDF,keywordList):
         grantFindsOut[iKeywords]=grantsFound
     return grantFindsOut
 
+def searchInputListsForKeywords(inputLists,keywordList):
+    """
+    Divides up the items in the inputLists--for items whose description includes
+    an item from the input keywordList variable--into groups associated by keyword.
+
+    Returns a dictionary wherein the keys are keywords and the values are lists of items
+    wherein the the keyword was found in the associated description.
+
+    Parameters
+    ----------
+    inputLists : list of lists
+        A list of lists wherein each list contains a set of items to be assessed for keyword occurrences. 
+    keywordList : list of strings
+        A list of strings corresponding to the keywords one is interested in assessing the occurrences of. 
+
+    Returns
+    -------
+    grantFindsOut : dictionary
+        A a dictionary wherein the keys are keywords and the values are lists of items
+    wherein the the keyword was found in the associated description.
+
+    See Also
+    --------
+    grants_by_Agencies : Divides up the grant IDs ('OpportunityID') from the input grantsDF by top level agency.
+    """
+    import pandas as pd
+    import re
+    # if inputLists is a series, then convert it to a list
+    if type(inputLists)==pd.core.series.Series:
+        inputLists=inputLists.values.tolist()
+
+
+    # create a dictionary which could be saved as a json, so that you don't have to do this each time
+    grantFindsOut={}
+    #grantsDF['Description']=grantsDF['Description'].apply(lambda x: x.lower().replace('-',''))
+
+    for iKeywords in keywordList:
+    # create a blank list to store the IDs of the grants with the keyword in the description
+        grantsFound=[]
+        # create the compiled search for this keyword
+        compiledSearch=re.compile('\\b'+iKeywords.lower()+'\\b')
+        for iRows,iListing in enumerate(inputLists):
+            # maybe it doesn't have a description field
+            try:
+                # case insensitive find for the keyword
+                # get rid of dashes to be insensitive to variations in hyphenation behaviors
+                if bool(compiledSearch.search(iListing.lower())):
+                    #append the ID if found
+                    grantsFound.append(iListing)
+            except:
+                # do nothing, if there's no description field, then the word can't be found
+                pass
+                
+        # store the found entries in the output dictionary.  Use the keyword as the key (with spaces replaced with underscores),
+        # and the value being the list of grant IDs
+        # maybe don't do this for now
+        #grantFindsOut[iKeywords.replace(' ','_')]=grantsFound
+        grantFindsOut[iKeywords]=grantsFound
+    return grantFindsOut
+
 #def evalGrantCoOccurrence(dictionariesList,formatOut='dictionary'):
 #    """
 #    DOESN'T WORK
@@ -969,6 +1029,7 @@ def produceJSONfromXMLs(xmlDirectory,savePath=None):
     import xmltodict
     import json
     import xml
+    import pandas as pd
     # generate the save path if it is not provided
     if savePath is None:
         savePath=os.path.join(xmlDirectory,'NSF_grants.json')
@@ -976,6 +1037,11 @@ def produceJSONfromXMLs(xmlDirectory,savePath=None):
     xmlFiles=glob.glob(xmlDirectory+os.sep+'*.xml')
     # create a holder for the JSON data
     jsonData=[]
+    # load the directorate remap file
+    directorateRemap=pd.read_csv('../NSF_directorate_remap.csv')
+    # get the unique valid directorate names
+    validDirectorateNames=directorateRemap['fixedName'].unique()
+
     # iterate across the XML files
     for iFiles in xmlFiles:
         # open the XML file
@@ -1010,8 +1076,21 @@ def produceJSONfromXMLs(xmlDirectory,savePath=None):
         # first, we need to convert the html entities to unicode
         if currentJSON['rootTag']['Award']['AbstractNarration'] is not None:
             soup=BeautifulSoup(currentJSON['rootTag']['Award']['AbstractNarration'])
-            currentJSON['rootTag']['Award']['AbstractNarration']=soup.get_text()
+            currentJSON['rootTag']['Award']['AbstractNarration']=soup.get_text().replace('<br/>','\n')
             #currentJSON['rootTag']['Award']['AbstractNarration']=currentJSON['rootTag']['Award']['AbstractNarration'].replace('<br>','\n')
+        # also implement the directorate remapping here
+        try:
+            if currentJSON['rootTag']['Award']['Organization']['Directorate']['LongName'] not in validDirectorateNames:
+                # get the current invalid directorate name
+                currentInvalidName=currentJSON['rootTag']['Award']['Organization']['Directorate']['LongName']
+                # find its index in the directorate remap file
+                currentInvalidNameIndex=directorateRemap.loc[directorateRemap['foundName']==currentInvalidName].index[0]
+                # remap the directorate name
+                currentJSON['rootTag']['Award']['Organization']['Directorate']['LongName']=directorateRemap.loc[currentInvalidNameIndex,'fixedName']
+        except:
+            print('Directorate remapping failed for '+currentJSON['rootTag']['Award']['AwardID'])
+
+        
         # append the JSON data to the holder as a new record
         jsonData.append(currentJSON)
         
