@@ -1,0 +1,227 @@
+[
+  {
+    "acronym": "ACHP",
+    "full title": "Advisory Council on Historic Preservation",
+    "valid": true
+  },
+  {
+    "acronym": "AC",
+    "full title": "AmeriCorps",
+    "valid": true
+  },
+  {
+    "acronym": "CNCS",
+    "full title": "Corporation for National and Community Service",
+    "valid": true
+  },
+  {
+    "acronym": "CPSC",
+    "full title": "Consumer Product Safety Commission",
+    "valid": true
+  },
+  {
+    "acronym": "DC",
+    "full title": "Denali Commission",
+    "valid": true
+  },
+  {
+    "acronym": "DHS",
+    "full title": "Department of Homeland Security",
+    "valid": true
+  },
+  {
+    "acronym": "DOC",
+    "full title": "Department of Commerce",
+    "valid": true
+  },
+  {
+    "acronym": "DOD",
+    "full title": "Department of Defense",
+    "valid": true
+  },
+  {
+    "acronym": "DOE",
+    "full title": "Department of Energy",
+    "valid": true
+  },
+  {
+    "acronym": "DOI",
+    "full title": "Department of the Interior",
+    "valid": true
+  },
+  {
+    "acronym": "DOL",
+    "full title": "Department of Labor",
+    "valid": true
+  },
+  {
+    "acronym": "DOS",
+    "full title": "Department of State",
+    "valid": true
+  },
+  {
+    "acronym": "DOT",
+    "full title": "Department of Transportation",
+    "valid": true
+  },
+  {
+    "acronym": "EAC",
+    "full title": "Election Assistance Commission",
+    "valid": true
+  },
+  {
+    "acronym": "ECP",
+    "full title": "Energy Cluster Program",
+    "valid": true
+  },
+  {
+    "acronym": "ED",
+    "full title": "Department of Education",
+    "valid": true
+  },
+  {
+    "acronym": "EPA",
+    "full title": "Environmental Protection Agency",
+    "valid": true
+  },
+  {
+    "acronym": "FCC",
+    "full title": "Federal Communications Commission",
+    "valid": true
+  },
+  {
+    "acronym": "FMCS",
+    "full title": "Federal Mediation and Conciliation Service",
+    "valid": true
+  },
+  {
+    "acronym": "GDIT",
+    "full title": "BAD / TEST RECORDS",
+    "valid": false
+  },
+  {
+    "acronym": "GSA",
+    "full title": "General Services Administration",
+    "valid": true
+  },
+  {
+    "acronym": "HHS",
+    "full title": "Department of Health and Human Services",
+    "valid": true
+  },
+  {
+    "acronym": "HUD",
+    "full title": "Department of Housing and Urban Development",
+    "valid": true
+  },
+  {
+    "acronym": "IMLS",
+    "full title": "Institute of Museum and Library Services",
+    "valid": true
+  },
+  {
+    "acronym": "LOC",
+    "full title": "Library of Congress",
+    "valid": true
+  },
+  {
+    "acronym": "MCC",
+    "full title": "Millennium Challenge Corporation",
+    "valid": true
+  },
+  {
+    "acronym": "NARA",
+    "full title": "National Archives and Records Administration",
+    "valid": true
+  }
+  {
+    "acronym": "NASA",
+    "full title": "National Aeronautics and Space Administration",
+    "valid": true
+    },
+    {
+    "acronym": "NCD",
+    "full title": "National Council on Disability",
+    "valid": true
+    },
+    {
+    "acronym": "NEA",
+    "full title": "National Endowment for the Arts",
+    "valid": true
+    },
+    {
+    "acronym": "NEH",
+    "full title": "National Endowment for the Humanities",
+    "valid": true
+    },
+    {
+    "acronym": "NRC",
+    "full title": "Nuclear Regulatory Commission",
+    "valid": true
+    },
+    {
+    "acronym": "NSF",
+    "full title": "National Science Foundation",
+    "valid": true
+    },
+    {
+    "acronym": "ODNI",
+    "full title": "Office of the Director of National Intelligence",
+    "valid": true
+    },
+    {
+    "acronym": "ONDCP",
+    "full title": "Office of National Drug Control Policy",
+    "valid": true
+    },
+    {
+    "acronym": "PAMS",
+    "full title": "Portfolio Analysis And Management System: Department of Energy, Office of Science",
+    "valid": false
+    },
+    {
+    "acronym": "SBA",
+    "full title": "Small Business Administration",
+    "valid": true
+    },
+    {
+    "acronym": "SSA",
+    "full title": "Social Security Administration",
+    "valid": true
+    },
+    {
+    "acronym": "USAID",
+    "full title": "United States Agency for International Development",
+    "valid": true
+    },
+    {
+    "acronym": "USDA",
+    "full title": "United States Department of Agriculture",
+    "valid": true
+    },
+    {
+    "acronym": "USDOJ",
+    "full title": "United States Department of Justice",
+    "valid": true
+    },
+    {
+    "acronym": "USDOT",
+    "full title": "United States Department of Transportation",
+    "valid": true
+    },
+    {
+    "acronym": "USEAC",
+    "full title": "United States Election Assistance Commission",
+    "valid": true
+    },
+    {
+    "acronym": "VA",
+    "full title": "Department of Veterans Affairs",
+    "valid": true
+    },
+    {
+    "acronym": "WWC",
+    "full title": "Woodrow Wilson Center",
+    "valid": true
+    },
+]
