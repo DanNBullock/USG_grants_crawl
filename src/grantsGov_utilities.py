@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import glob
 
-
+# grantXML_or_path='C:\\Users\\dbullock\\Documents\\code\\gitDir\\USG_grants_crawl\\inputData\\GrantsDBExtract20230113v2.xml'
 def grantXML_to_dictionary(grantXML_or_path):
     """
     Convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
@@ -417,6 +417,7 @@ def inferNames_GovGrantsDF(grantsDF):
         outputInfo=[currAgencyName,currAngencyCode,currAngencySubCode]
         #if there is new information to add, update the record
         if not inputInfo==outputInfo:
+            #print(outputInfo)
             grantsDF['AgencyName'].iloc[iIndex] =  outputInfo[0]
             grantsDF['AgencyCode'].iloc[iIndex] =  outputInfo[1]
             grantsDF['AgencySubCode'].iloc[iIndex] =  outputInfo[2]
@@ -611,16 +612,16 @@ def searchInputListsForKeywords(inputLists,keywordList):
     return grantFindsOut
 
 # open the grants json file as a dictionary
-grantsJsonPath='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NSF_grant_data/NSF_grants.json'
-keywordTable='/media/dan/HD4/coding/gitDir/USG_grants_crawl/OSterms_LeeChung2022.csv'
-import json
-with open(grantsJsonPath) as f:
-    grantsDict=json.load(f)
+#grantsJsonPath='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NSF_grant_data/NSF_grants.json'
+#keywordTable='/media/dan/HD4/coding/gitDir/USG_grants_crawl/OSterms_LeeChung2022.csv'
+#import json
+#with open(grantsJsonPath) as f:
+#    grantsDict=json.load(f)
 # load the keywords table
-import pandas as pd
-keywordsDF=pd.read_csv(keywordTable)
-keywordList=keywordsDF['terms']
-inputLists=[iAward['rootTag']['Award']['AbstractNarration'] for iAward in grantsDict]
+#import pandas as pd
+#keywordsDF=pd.read_csv(keywordTable)
+#keywordList=keywordsDF['terms']
+#inputLists=[iAward['rootTag']['Award']['AbstractNarration'] for iAward in grantsDict]
 
 def searchInputListsForKeywords_dask(inputLists,keywordList):
     """
