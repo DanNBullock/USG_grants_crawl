@@ -9,4 +9,7 @@ json
 d3blocks
 re
 itertools
-scipy
+pickle
+d3blocks
+jupyter-notebook
+pyLDAvis
