@@ -525,7 +525,7 @@ def searchGrantsDF_for_keywords(grantsDF,keywordList):
 
     # create a dictionary which could be saved as a json, so that you don't have to do this each time
     grantFindsOut={}
-    grantsDF['Description']=grantsDF['Description'].apply(lambda x: x.lower().replace('-',''))
+    grantsDF['Description']=grantsDF['Description'].apply(lambda x: x.lower().replace('-',' '))
 
     for iKeywords in keywordList:
     # create a blank list to store the IDs of the grants with the keyword in the description
