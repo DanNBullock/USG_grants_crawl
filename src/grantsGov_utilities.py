@@ -888,6 +888,96 @@ def applyKeywordSearch_NSF(inputDF,keywordList):
 #    #return the output dictionary
 #    return out_dict
 
+def prepareTextForNLP(inputText,stopwordsList=None,lemmatizer=None):
+    """
+    This function is designed to take a string of text and prepare it for NLP analysis.  It does this by:
+        1) converting to lowercase
+        1.5) replacing dashes with spaces
+        2) removing punctuation
+        3) removing stopwords
+        4) removing digits
+        5) removing whitespace
+        6) removing single character words
+        7) lemmatizing
+    Inputs:
+        inputText: string
+            The text to be prepared for NLP analysis
+    Outputs:
+        outputText: string
+            The text prepared for NLP analysis
+    """
+    import re
+    import nltk
+    # download the stopwords and wordnet corpora if they haven't already been downloaded
+    nltk.download('stopwords',quiet=True)
+    nltk.download('wordnet',quiet=True)
+    # import the necessary libraries
+    from nltk.corpus import stopwords
+    from nltk.stem import WordNetLemmatizer
+    # convert to lowercase
+    outputText=inputText.lower()
+    # replace dashes with spaces
+    outputText=re.sub(r'-',' ',outputText)
+    # remove punctuation
+    outputText=re.sub(r'[^\w\s]','',outputText)
+    # remove stopwords
+    if stopwordsList is None:
+        stop_words = set(stopwords.words('english'))
+    else:
+        stop_words = set(stopwordsList) 
+    outputText = ' '.join([word for word in outputText.split() if word not in stop_words])
+    # remove digits
+    outputText=re.sub(r'\d+','',outputText)
+    # remove whitespace
+    outputText=re.sub(r'\s+',' ',outputText)
+    # remove single character words
+    outputText=re.sub(r'\b[a-zA-Z]\b','',outputText)
+    # lemmatize
+    if lemmatizer is None:
+        lemmatizer = WordNetLemmatizer()
+    else:
+        lemmatizer=lemmatizer
+    outputText=' '.join([lemmatizer.lemmatize(word) for word in outputText.split()])
+    return outputText
+
+def prepareAllTextsForNLP(inputTexts,stopwordsList=None,lemmatizer=None):
+    """
+    This function is designed to take a list of strings of text and prepare them for NLP analysis.  It does this by:
+        1) converting to lowercase
+        1.5) replacing dashes with spaces
+        2) removing punctuation
+        3) removing stopwords
+        4) removing digits
+        5) removing whitespace
+        6) removing single character words
+        7) lemmatizing
+    
+    Also, it is optinally possible to run this function in a parralized fashion, if dask is installed.
+    
+    Inputs:
+        inputTexts: list of strings
+            The texts to be prepared for NLP analysis
+        stopwordsList: list of strings
+            A list of stopwords to be removed from the text
+        lemmatizer: nltk.stem.WordNetLemmatizer
+            A lemmatizer to be used to lemmatize the text
+    Outputs:
+        outputTexts: list of strings
+            The texts prepared for NLP analysis
+    """
+    # run with dask if possible
+    # not working due to dask.bag.map() not being able to handle the lemmatizer argument ?
+    ##try:
+    #    import dask
+    #    import dask.bag as db
+    #    outputTexts=db.from_sequence(inputTexts).map(lambda x: prepareTextForNLP(x,stopwordsList=stopwordsList,lemmatizer=lemmatizer)).compute()   
+    # run without dask if not possible
+    # except:
+    outputTexts=[]
+    for iText in inputTexts:
+        outputTexts.append(prepareTextForNLP(iText,stopwordsList=stopwordsList,lemmatizer=lemmatizer))
+    return outputTexts
+
 def evalGrantCoOccurrence(dictionariesList,formatOut='dictionary'):
     """
     
