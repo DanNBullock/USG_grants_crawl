@@ -10,6 +10,4 @@ d3blocks
 re
 itertools
 pickle
-d3blocks
 jupyter-notebook
-pyLDAvis
