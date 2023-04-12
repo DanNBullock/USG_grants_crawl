@@ -1,0 +1,16 @@
+- file:  landingPage
+
+- part: grants.gov
+  chapters:
+  - file: notebooks/GrantsDotGov_XML_ingest
+  - file: notebooks/GrantsDotGov_Open_Science_Overview
+  - file: notebooks/GrantsDotGov_Agency
+  - file: notebooks/GrantsDotGov_Agency-Replication
+  - file: notebooks/GrantsDotGov_Agency-Co-Occurrence
+  - file: notebooks/GrantsDotGov_SanityCheck
+  - file: notebooks/GrantsDotGov_LDA
+
+- part: NSF
+  chapters:
+  - file: notebooks/GrantsDotGov_NSF_XML_ingest
+  - file: notebooks/GrantsDotGov_NSF-Directorate-Co-Occurrence
