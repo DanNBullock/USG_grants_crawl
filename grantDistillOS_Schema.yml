@@ -1,0 +1,282 @@
+# this is a LinkML schema for use with the ontogpt project https://github.com/monarch-initiative/ontogpt
+# it's purpose is to provide the framework for distilling the Public Access / Open-Science characteristics of grants in a systematic and automatable fashion
+
+# we will use examples provided here: https://github.com/monarch-initiative/ontogpt/blob/main/src/ontogpt/templates/
+# lets start by initalizing the collection of classes
+# note that we are NOT beginning with the w3id / linkml boilerplate for this initial draft
+# UPDATE: Ok, fine, we'll include some of this information
+#id: http://w3id.org/.../...
+name: grant-distill-open-science-schema
+title: Grant distillation of Open-Science Characteristics
+description: >-
+  A framework for distilling the Public Access / Open-Science characteristics of grants in a systematic and automatable fashion
+license: https://creativecommons.org/publicdomain/zero/1.0/
+prefixes:
+  linkml: https://w3id.org/linkml/
+keywords:
+  - united states government
+  - federal
+  - agency
+  - grant
+  - open-science 
+
+classes: 
+  grantRecord:
+    attributes:
+      # grant code
+      grantID:
+        description: The alpha-numeric code corresponding grant-record entry in the corresponding database or grant record-keeping system.  Likely specific to the associated record-keeping system and not valid / functional outside of that system (i.e. across agencies).
+        examples:
+          # NSF example
+          - value: 2138403
+          # NSF example
+          - value: 2048231
+          # NIH example
+          - value: 5R21NS125466-02
+          # NIH example
+          - value: 5R01NS127892-02
+        identifier: true
+      # grant agency / org
+      # TODO: should probably be a separate class with corresponding 'slots' https://linkml.io/linkml/schemas/slots.html
+      # TODO: along with later mentioned sub-sub division and / or even specific programs, maybe also include Program officer or responsible / monitoring indiviual.
+      # This could all be under something like grant sourcing / provenance 
+      # TODO: (FOR WAY LATER) There probably exist controlled ontologies for these (e.g. http://www.oegov.us/)
+      grantingAgencyOrg: 
+        description: The top-level organization or agency which is providing / furnishing the grant.  If this information cannot be parsed from the input data source, a null value instead. 
+        examples:
+          # allow acronyms
+          - value: NSF
+          - value: NIH
+          - value: DOE
+          - value: DOI
+          - value: DOD
+          # allow full agency names
+          - value: National Science Foundation
+          - value: National Institute of Health
+          - value: Department of Energy
+          - value: Department of Interior
+          - value: Department of Defense
+        ifabsent: null
+      # grant sub-division
+      grantingSubDivision:
+        description: The immediate sub-division, under the 'grantingAgency' organization structure, corresponding to the current grant.  If this information cannot be parsed from the input data source, a null value instead. 
+        examples:
+        # NIH Examples
+        - value: National Cancer Institute
+        - value: National Eye Institute
+        - value: National Institute on Aging
+        - value: National Institute of Mental Health
+        # NIH acronyms
+        - value: NCI
+        - value: NEI
+        - value: NIA
+        - value: NIMH
+        # NSF examples
+        - value: Directorate for Computer and Information Science and Engineering
+        - value: Directorate for Biological Sciences
+        - value: Directorate for Engineering
+        - value: Directorate for Geosciences
+        # NSF Acronyms
+        - value: CISE
+        - value: BIO
+        - value: ENG
+        - value: GEO
+        # ifabsent
+        ifabsent: null
+        # TODO: consider including sub-sub division and / or even specific programs
+      # grant value characteristics
+      grantValue: 
+        description: The monetary value of grant
+        range: integer 
+        ifabsent: .NAN
+      # grant temporality characteristics
+      # TODO: can potentially be its own class
+      grantBeginDate: 
+        description: The date at which the grant went or will go into effect.
+        range: datetime 
+        ifabsent: null
+      grantEndDate: 
+        description: The date at which the grant did or will conclude.
+        range: datetime 
+        ifabsent: null
+      amendmentDates:
+        description: The dates on, for, or at which the grant was modified or ammended.
+        multivalued: true
+        ifabsent: []
+      # grant recipient information
+      # TODO: can potentially be its own class
+      grantRecipient_individual:
+        description: The *individual* (or enumerated persons) who is (are) the designated recipient(s) of the grant.
+        multivalued: true
+        ifabsent: null
+        examples:
+        - value: John Doe
+        - value: Professor James Moriarty
+        - value: Doctor Ian Malolm
+      # TODO: can be enriched WITHOUT gpt with machine-accessible location information (city, state), contact info, category information (MSI,HBC,etc)
+      # TODO: (FOR WAY LATER) There probably exist controlled ontologies for these
+      grantRecipient_org:
+        description: The relevant (e.g. managing indirect costs) *organization* associated with the grantRecipient_individual.  If not explicitly designated or stated, presumably the grantRecipient_individual's primary organization or affiliation.
+        examples:
+        - value: Allen Institute
+        - value: Indiana University
+        - value: University of North Carolina at Chapel Hill
+        - value: North Carolina State University
+      # grant topic information
+      # TODO: should definitely be several seprate classes
+      grantCharacter:
+        description: The relevant characteristics of the grant.
+        worktype: 
+          description: The type of work that a grant might seek to support, elicit, or engender.  Lowercased.  If it cannot be parsed or determined, then null.
+          multivalued: true
+          range: worktype
+          ifabsent: []
+          examples:
+          - value: [research]
+          - value: [curation]
+          - value: [research, curation]
+        workdomain: 
+          description: The broad categorical / topical domain across, in, or with which the work is to be done. If it cannot be parsed or determined, then null.
+          multivalued: true
+          range: workdomain
+          ifabsent: []
+          examples:
+          - value: [biosciences]
+          - value: [engineering]
+          - value: [biosciences, engineering]
+        openScienceTraits: 
+          description: The aspects or characteristics which are relevant to Public Access and/or Open-Science.
+          multivalued: true
+          range: openScienceTraits
+          ifabsent: []
+          examples:
+          - value: [data sharing]
+          - value: [data storage]
+          - value: [data sharing, data storage]  
+  # END grantRecord
+
+
+# begin enums (https://linkml.io/linkml/schemas/models.html#enums)
+enums:
+  worktype:
+    description: The type of work that a grant might seek to support, elicit, or engender.  Lowercased.  If it cannot be parsed or determined, then null.
+    # generated with the help of chatGPT
+    permissible_values:
+      research: 
+        description: Endeavors which are designed for the development of knowledge or insight from existing data sources, or from yet undetermined information sources.
+      curation: 
+        description: Endeavors which are designed or intended for the collecton, derevation, provision, and/or organizaton of data, artifacts, and other scholarly resources.  Does not necessarily entail the use of the resources for research by the organization performing the curation.
+      service provision:
+        description: Endeavors which are designed or intended for the ongoing provision of services, such as training, outreach, education, and/or intervention (e.g. medical) to a specific community or group.
+      coordination: 
+        description: Endeavors which are designed or intended for the coordination and/or management the work of individuals, institutions, and/or organizations.
+      infrastructure devops: 
+        description: Endeavors which are designed or intended for the development and/or provision of infrastructural resources, such as facilities, equipment, software, procedures, systems, and/or protocols.
+      implementation: 
+        description: Endeavors which are designed or intended for the transition from plans, prototypes, and proofs of concept to actual implementations that can scale to substantially broad(er) use-cases, applications, consumer-groups, and/or needs.
+  #END worktype
+  #BEGIN workdomain
+  workdomain:
+    description: The broad categorical / topical domain across, in, or with which the work is to be done.
+    # TODO: There's almost certianly an ontology for this somewhere.
+    permissible_values:
+      biosciences:  
+        description: Fields such as biology, genetics, biotechnology, biochemistry, neuroscience, and ecology.
+      pysical sciences: 
+        description: Fields such as physics, chemistry, astronomy, geology, and materials science.
+      engineering:
+        description: Fields such as mechanical engineering, electrical engineering, civil engineering, chemical engineering, and computer engineering.  Typically concerned with the controlled and intentional instantiation of structures, states, and processes.
+      mathematics: 
+        description: Fields such as mathematics, statistics, and applied mathematics.
+      social sciences:
+        description: Fields such as psychology, sociology, anthropology, political science, economics, and communication studies.
+      interdisciplinary:
+        description: Fields that necessarily and definitionally span multiple disciplines such as environmental science, data science, computational science, cognitive science, and global studies.  Typically characteried by a tacit or explicit substrate neutrality or independence.
+  #END workdomain
+  #BEGIN openScienceTraits
+  openScienceTraits:
+    description: The aspects or characteristics which are relevant to Public Access and/or Open-Science.
+    # TODO: OS ontology goes here.
+    # TODO: deduplicate this.
+    permissible_values:
+      data sharing:
+        description: Data sharing refers to the practice of making research data available to others for reuse or validation of research findings.
+      data storage:
+        description: Data storage refers to the physical or virtual space where data is stored, organized, and managed.
+      data preservation:
+        description: Data preservation refers to the practice of maintaining and keeping research data accessible and usable for future generations.
+      metadata standards:
+        description: Metadata standards are sets of guidelines and rules that define the format, content, and structure of metadata used to describe and manage research data.
+      metadata:
+        description: Metadata refers to the descriptive information about research data, including information about its content, context, structure, and other characteristics.
+      data repositories:
+        description: Data repositories are online platforms or databases that provide long-term storage and access to research data.
+      data management plans:
+        description: Data management plans are formal documents that outline the strategies, procedures, and policies for managing and sharing research data.
+      data management:
+        description: Data management refers to the planning, organizing, storing, and sharing of research data throughout its lifecycle.
+      data curation:
+        description: Data curation involves managing and preserving research data throughout its lifecycle, including data selection, acquisition, appraisal, preservation, and sharing.
+      data citation:
+        description: Data citation refers to the practice of citing research data in scholarly publications to acknowledge and give credit to the data creators.
+      data reuse:
+        description: Data reuse refers to the practice of reusing research data for different purposes, such as further analysis, validation of research findings, or the development of new research questions.
+      metadata schema:
+        description: A metadata schema is a specific set of rules, standards, and guidelines used to describe and manage research data.
+      data quality:
+        description: Data quality refers to the accuracy, completeness, consistency, and reliability of research data.
+      data privacy:
+        description: Data privacy refers to the ethical and legal obligations to protect the confidentiality and anonymity of research participants and their personal information.
+      data security:
+        description: Data security refers to the measures and protocols used to protect research data from unauthorized access, loss, theft, or damage.
+      data access:
+        description: Data access refers to the ability of researchers to access and use research data for their own research purposes.
+      open access policies:
+        description: Open access policies are institutional or funder policies that require or encourage researchers to make their research outputs, including publications and data, openly accessible to the public.
+      open access:
+        description: Open access refers to the practice of making research outputs, such as publications and data, freely and openly accessible to the public.
+      public access:
+        description: Public access refers to the practice of making research outputs, such as publications and data, openly accessible to the public.
+      publisher agreements:
+        description: Publisher agreements are formal contracts between publishers and authors that outline the terms and conditions of publication, including copyright, licensing, and open access policies.
+      article processing charges:
+        description: Article processing charges are fees paid by authors or their funders to publishers to cover the costs of publication and open access.
+      open data:
+        description: Open data refers to the practice of making research data openly accessible, reusable, and shareable by anyone.
+      open source:
+        description:  Open source refers to the practice of making software and code openly accessible, reusable, and shareable by anyone.
+      data sharing agreement:
+        description: A data sharing agreement is a formal agreement or contract between data providers and users that outlines the terms and conditions of data sharing and use.
+      collaborative workflow:
+        description: Collaborative workflow refers to the process of collaborating with others to complete a task or project, often involving multiple stages, tools, and individuals.
+      open peer review:
+        description: A form of peer review in which the identity of the reviewer and/or author is disclosed, with the aim of increasing transparency and accountability in the review process.
+      peer review:
+        description: A process in which scholarly work is evaluated by experts in the same field to ensure that it meets certain standards of quality and originality.
+      reproducible research:
+        description: A type of research that is conducted in such a way that the results can be independently verified and replicated by others using the same or similar methods and data.
+      data science:
+        description: An interdisciplinary field that combines aspects of computer science, statistics, and other disciplines to analyze and interpret complex data sets.
+      database:
+        description: An organized collection of data, usually stored electronically in a computer system and designed to be easily accessed, managed, and updated.
+      python:
+        description: A high-level programming language that is widely used in scientific computing and data analysis.
+      workflow:
+        description: A set of interrelated tasks that are performed in a specific order to accomplish a particular goal.
+      openness:
+        description: A general concept referring to the sharing of research data, materials, and methods in a transparent and accessible way.
+      research data:
+        description: The digital or physical data that is collected, observed, or created in the course of conducting research.
+      academic libraries:
+        description: Libraries located within academic institutions, typically with specialized collections and services that support the research and educational needs of the institution's faculty, staff, and students.
+      bibliometrics:
+        description: The quantitative analysis of patterns in academic publications, such as citation counts and publication impact factors.
+      citizen science:
+        description: A form of collaboration in which members of the public participate in scientific research projects, often by collecting or analyzing data.
+      repositories:
+        description: Online platforms or databases that allow for the storage, organization, and sharing of research outputs such as publications, data, and software.
+
+
+
+
+
