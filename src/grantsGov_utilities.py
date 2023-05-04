@@ -623,6 +623,192 @@ def searchInputListsForKeywords(inputLists,keywordList):
 #keywordList=keywordsDF['terms']
 #inputLists=[iAward['rootTag']['Award']['AbstractNarration'] for iAward in grantsDict]
 
+def applyRegexToInput(inputText,stringPhrase,caseSensitive=False):
+    """
+    Applies a regex search to the inputText and returns a boolean indicating whether the stringPhrase was found.
+
+    Parameters
+    ----------
+    inputText : string
+        A string to be assessed for the presence of the stringPhrase.
+    stringPhrase : string
+        A string corresponding to the phrase one is interested in assessing the occurrences of. 
+    caseSensitive : bool, optional
+        A boolean indicating whether the search should be case sensitive. The default is False.
+
+    Returns
+    -------
+    bool
+        A boolean indicating whether the stringPhrase was found in the inputText.
+    """
+    import re
+    if caseSensitive:
+        compiledSearch=re.compile(stringPhrase)
+    else:
+        compiledSearch=re.compile(stringPhrase.lower())
+    try:
+        if bool(compiledSearch.search(inputText.lower())):
+            return True
+        else:
+            return False
+    except:
+        return False
+
+def applyRegexToXMLFile(xmlFilePath,stringPhrase,fieldsSelect,caseSensitive=False):
+    """
+    Applies a regex search to the inputText and returns a boolean indicating whether the stringPhrase was found.
+    
+    Parameters
+    ----------
+    xmlFilePath : string
+        A string corresponding to the path to the xml file to be searched.  Can also be the file contents as a string.
+    stringPhrase : string
+        A string corresponding to the phrase one is interested in assessing the occurrences of.
+    fieldsSelect : list of strings
+        A list of strings corresponding to the nested sequence of fields to be searched.  First field is the root tag.  Last field is the field to be searched.  Will throw an error if not specified correctly.
+    caseSensitive : bool, optional
+        A boolean indicating whether the search should be case sensitive. The default is False.
+    
+    Returns
+    -------
+    bool
+        A boolean indicating whether the stringPhrase was found in the inputText.
+    """
+    import xmltodict
+    import re
+    if caseSensitive:
+        compiledSearch=re.compile(stringPhrase)
+    else:
+        compiledSearch=re.compile(stringPhrase.lower())
+    # if the xmlFilePath is a string, then assume it's the file path and load the file
+    if type(xmlFilePath)==str:
+        with open(xmlFilePath) as f:
+            xmlDict=xmltodict.parse(f.read())
+    # close the file
+        f.close()
+    else:
+        xmlDict=xmltodict.parse(xmlFilePath)
+    # iterate through the elements of fieldsSelect list to get to the content of the final field
+    for iField in fieldsSelect:
+        xmlDict=xmlDict[iField]
+    # now that we have the relevant contet, we need to convert the text to nlp-ready text
+    # use prepareTextForNLP(inputText,stopwordsList=None,lemmatizer=None)
+    xmlDict=prepareAllTextsForNLP(xmlDict)
+
+    # use applyRegexToInput
+    outputBool=applyRegexToInput(xmlDict,stringPhrase,caseSensitive=caseSensitive)
+    return outputBool
+
+
+def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect,caseSensitive=False):
+    """
+    Applies a regex search to the list of inputTexts and a dictionary wherein the keys are a tuple of the string phrase and the file name and the values are booleans indicating whether the string phrase was found in the file.
+
+    Parameters
+    ----------
+    directoryPath : string
+        A string corresponding to the path to the directory containing the xml files to be searched.
+    stringPhraseList : list of strings
+        A list of strings corresponding to the phrases one is interested in assessing the occurrences of.
+    fieldsSelect : list of strings
+        A list of strings corresponding to the nested sequence of fields to be searched.  First field is the root tag.  Last field is the field to be searched.  Will throw an error if not specified correctly.
+    caseSensitive : bool, optional
+        A boolean indicating whether the search should be case sensitive. The default is False.
+
+    Returns
+    -------
+    outputDict : dict
+        A dictionary with a field corresponding to the string phrase, whose value is a dictionary with fields corresponding to the file names, whose values are booleans indicating whether the string phrase was found in the file.
+    """
+    # determine if dask is available
+    try:
+        import dask
+        import dask.bag as db
+        daskAvailable=True
+    except:
+        daskAvailable=False
+    import os
+    fileList=os.listdir(directoryPath)
+    # create an empty dictionary with the tuples of the string phrase and the file name as the keys
+    outputDict={}
+    # if dask is available, use it to parallelize the search
+    if daskAvailable:
+        # iterate across the stringPhraseList and apply the regex search to each file
+        for iStringPhrase in stringPhraseList:
+            # get the list of files in the directory
+            
+            # create a dask bag with the file list
+            fileListBag=db.from_sequence(fileList)
+            # use the dask bag to apply the regex search to each file and place it in the appropriate tuple dictionary entry
+            outputDict[iStringPhrase]=dict(fileListBag.map(lambda x: (iStringPhrase,x,applyRegexToXMLFile(os.path.join(directoryPath,x),iStringPhrase,fieldsSelect,caseSensitive=caseSensitive))).compute())
+    # if dask is not available, use a for loop to iterate across the files
+    else:
+        # iterate across the stringPhraseList and apply the regex search to each file
+        for iStringPhrase in stringPhraseList:
+            # get the list of files in the directory
+            fileList=os.listdir(directoryPath)
+            # iterate across the files
+            for iFile in fileList:
+                # apply the regex search to the file and place it in the appropriate tuple dictionary entry
+                outputDict[iStringPhrase][iFile]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect,caseSensitive=caseSensitive)
+
+    return outputDict
+
+def convertTupleDictToEfficientDict(tupleDict,rowDescription='',colDescription=''):
+    """
+    Convets a dictionary with tuples as keys to a dictionary with three keys: rowNames, colNames, and dataMatrix.  
+    The rowName and colName are themselves dictionaries, with two fields:  "nameValues" and "description".  
+    "nameValues" is a list of the unique names of the rows or columns, respectively.  "description" is a string describing the data in the row or column.
+    The dataMatrix is a N by M matrix of reflecting the values associated with the tuples.
+
+    This is done because presumably this is a more efficient way to store the data.
+    
+    Parameters
+    ----------
+    tupleDict : dict
+        A dictionary with tuples as keys.
+    rowDescription : string, optional
+        A string describing the data in the rows. The default is '', a blank string.
+    colDescription : string, optional  
+        A string describing the data in the columns. The default is '', a blank string.
+
+    Returns
+    -------
+    efficientDict : dict
+        A dictionary with three keys: rowName, colName, and dataMatrix.
+    """
+    import numpy as np
+    # get the row and column names
+    rowName=[iTuple[0] for iTuple in tupleDict.keys()]
+    colName=[iTuple[1] for iTuple in tupleDict.keys()]
+    # get the unique row and column names and preserve the order
+    uniqueRowName=list(dict.fromkeys(rowName))
+    uniqueColName=list(dict.fromkeys(colName))
+    # create the efficient dictionary
+    efficientDict={}
+    efficientDict['rowName']={}
+    efficientDict['colName']={}
+    efficientDict['dataMatrix']=np.zeros((len(uniqueRowName),len(uniqueColName)))
+    # go ahead and create the description field for the row and column names
+    efficientDict['rowName']['description']=rowDescription
+    efficientDict['colName']['description']=colDescription
+    # before iterating across the rows and colums, go ahead and fill in the row and column names
+    efficientDict['rowName']['nameValues']=uniqueRowName
+    efficientDict['colName']['nameValues']=uniqueColName
+    # iterate across the rows and columns and fill in the data matrix
+    for iRow in range(len(uniqueRowName)):
+        for iCol in range(len(uniqueColName)):
+            # get the row and column names
+            iRowName=uniqueRowName[iRow]
+            iColName=uniqueColName[iCol]
+            # get the value
+            iValue=tupleDict[(iRowName,iColName)]
+            # fill in the data matrix
+            efficientDict['dataMatrix'][iRow,iCol]=iValue
+    return efficientDict
+
+    
+
 def searchInputListsForKeywords_dask(inputLists,keywordList):
     """
     Divides up the items in the inputLists--for items whose description includes
@@ -887,6 +1073,7 @@ def applyKeywordSearch_NSF(inputDF,keywordList):
 #                    out_dict[(value,)] = other_values
 #    #return the output dictionary
 #    return out_dict
+
 
 def prepareTextForNLP(inputText,stopwordsList=None,lemmatizer=None):
     """
@@ -1688,7 +1875,7 @@ def produceJSONfromXMLs_dask(xmlDirectory=None,savePath=None):
     
 
 
-def detectLocalNSFData(dataDirectory=None):
+def detectLocalNSFData(dataDirectory=None,omnibusJSON=False):
     '''
     This function detects whether the local NSF grant data is present in the form of
     the converted omnibus json file.  If it is not present it will download and 
@@ -1698,6 +1885,9 @@ def detectLocalNSFData(dataDirectory=None):
     Inputs:
         dataDirectory: string
             A string corresponding to the directory in which the converted json file should be located.
+        omnibusJSON: boolean
+            A boolean indicating whether an omnibus json file should be created from the individual xml files.
+    
     Outputs:
         jsonPath: string
             A string corresponding to the path to the converted json file.   
@@ -1707,29 +1897,32 @@ def detectLocalNSFData(dataDirectory=None):
     # if the data directory is not provided, use the current working directory
     if dataDirectory is None:
         dataDirectory=os.getcwd()
-    # get the list of json files
-    jsonFiles=glob.glob(dataDirectory+os.sep+'*.json')
-    # iterate across the json files
-    for iFiles in jsonFiles:
-        # if the file is the converted json file, return the path
-        if 'NSF_grants' in iFiles:
-            print('The local NSF grant data was found at '+iFiles+'.')
-            return iFiles
-    # if the converted json file is not found, download and convert the data
-    print('local NSF grant data was not found.  Downloading and converting the data.')
-    downloadURLs=genNSFdownloadURLs()
-    downloadNSFgrantsData(downloadURLs,saveDirectory=dataDirectory)
-    # use produceJSONfromXMLs to convert the XML files to a single json file
-    produceJSONfromXMLs(dataDirectory,savePath=None)
-    # get the list of json files
-    jsonFiles=glob.glob(dataDirectory+os.sep+'*.json')
-    # iterate across the json files
-    for iFiles in jsonFiles:
-        # if the file is the converted json file, return the path
-        if 'NSF_grants' in iFiles:
-            return iFiles
-    # if the converted json file is not found, return None
-    return None
+    # check for the contents of the data directory
+    dataContents=os.listdir(dataDirectory)
+    # if the omnibus json file is present and omnibusJSON is True, return the path
+    if 'NSF_grants_omnibus.json' in dataContents and omnibusJSON:
+        print('The local NSF grant data was found at '+dataDirectory+os.sep+'NSF_grants_omnibus.json.')
+        return dataDirectory+os.sep+'NSF_grants_omnibus.json'
+    # if the omnibus json file is not present and omnibusJSON is True, create the omnibus json file
+    elif 'NSF_grants_omnibus.json' not in dataContents and omnibusJSON:
+        print('The local NSF grant data was not found.  Downloading and converting the data.')
+        downloadURLs=genNSFdownloadURLs()
+        downloadNSFgrantsData(downloadURLs,saveDirectory=dataDirectory)
+        # use produceJSONfromXMLs to convert the XML files to a single json file
+        produceJSONfromXMLs(dataDirectory,savePath=None)
+        # return the path to the omnibus json file
+        return dataDirectory+os.sep+'NSF_grants_omnibus.json'
+    # if omnibusJSON is False, check to ensure that there are at least 100 xml files in the directory, with the presumption that they each correspond to award data records
+    elif len(glob.glob(dataDirectory+os.sep+'*.xml'))>=100:
+        print('The putative local NSF grant data was found at '+dataDirectory+'.')
+        return dataDirectory
+    # if there are not at least 100 xml files in the directory, download and unzip the data
+    else:
+        print('The local NSF grant data was not found.  Downloading and converting the data.')
+        downloadURLs=genNSFdownloadURLs()
+        downloadNSFgrantsData(downloadURLs,saveDirectory=dataDirectory)
+        return dataDirectory
+
 
 def NSFjson2DF(jsonPathOrFile):
     '''

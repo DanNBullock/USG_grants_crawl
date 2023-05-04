@@ -1,18 +1,22 @@
 # this is a LinkML schema for use with the ontogpt project https://github.com/monarch-initiative/ontogpt
 # it's purpose is to provide the framework for distilling the Public Access / Open-Science characteristics of grants in a systematic and automatable fashion
 
+# NOTE: datamodel-codegen alters the casing of your chosen fields.  Goes from camel casing to full camel casing (e.g. first letter)
+
 # we will use examples provided here: https://github.com/monarch-initiative/ontogpt/blob/main/src/ontogpt/templates/
 # lets start by initalizing the collection of classes
 # note that we are NOT beginning with the w3id / linkml boilerplate for this initial draft
 # UPDATE: Ok, fine, we'll include some of this information
 #id: http://w3id.org/.../...
+#maybe?
+id: https://w3id.org/linkml/meta.yaml
 name: grant-distill-open-science-schema
 title: Grant distillation of Open-Science Characteristics
 description: >-
   A framework for distilling the Public Access / Open-Science characteristics of grants in a systematic and automatable fashion
 license: https://creativecommons.org/publicdomain/zero/1.0/
 prefixes:
-  linkml: https://w3id.org/linkml/meta.schema.json 
+  linkml: https://w3id.org/linkml/
 keywords:
   - united states government
   - federal
@@ -21,11 +25,18 @@ keywords:
   - open-science
 version: 0.1
 
+imports:
+  - linkml:types
+  - core
+
+default_range: string
+
 classes: 
-  grantRecord:
+  grantrecord:
+    tree_root: true
     attributes:
       # grant code
-      grantID:
+      grantid:
         description: The alpha-numeric code corresponding grant-record entry in the corresponding database or grant record-keeping system.  Likely specific to the associated record-keeping system and not valid / functional outside of that system (i.e. across agencies).
         examples:
           # NSF example
@@ -42,7 +53,7 @@ classes:
       # TODO: along with later mentioned sub-sub division and / or even specific programs, maybe also include Program officer or responsible / monitoring indiviual.
       # This could all be under something like grant sourcing / provenance 
       # TODO: (FOR WAY LATER) There probably exist controlled ontologies for these (e.g. http://www.oegov.us/)
-      grantingAgencyOrg: 
+      grantingagencyorg: 
         description: The top-level organization or agency which is providing / furnishing the grant.  If this information cannot be parsed from the input data source, a null value instead. 
         examples:
           # allow acronyms
@@ -59,7 +70,7 @@ classes:
           - value: Department of Defense
         ifabsent: null
       # grant sub-division
-      grantingSubDivision:
+      grantingsubdivision:
         description: The immediate sub-division, under the 'grantingAgency' organization structure, corresponding to the current grant.  If this information cannot be parsed from the input data source, a null value instead. 
         examples:
         # NIH Examples
@@ -86,27 +97,27 @@ classes:
         ifabsent: null
         # TODO: consider including sub-sub division and / or even specific programs
       # grant value characteristics
-      grantValue: 
+      grantvalue: 
         description: The monetary value of grant
         range: integer 
-        ifabsent: .NAN
+        ifabsent: null
       # grant temporality characteristics
       # TODO: can potentially be its own class
-      grantBeginDate: 
+      grantbegindate: 
         description: The date at which the grant went or will go into effect.
         range: datetime 
         ifabsent: null
-      grantEndDate: 
+      grantenddate: 
         description: The date at which the grant did or will conclude.
         range: datetime 
         ifabsent: null
-      amendmentDates:
+      amendmentdates:
         description: The dates on, for, or at which the grant was modified or ammended.
         multivalued: true
-        ifabsent: []
+        ifabsent: null
       # grant recipient information
       # TODO: can potentially be its own class
-      grantRecipient_individual:
+      grantrecipient_individual:
         description: The *individual* (or enumerated persons) who is (are) the designated recipient(s) of the grant.
         multivalued: true
         ifabsent: null
@@ -116,7 +127,7 @@ classes:
         - value: Doctor Ian Malolm
       # TODO: can be enriched WITHOUT gpt with machine-accessible location information (city, state), contact info, category information (MSI,HBC,etc)
       # TODO: (FOR WAY LATER) There probably exist controlled ontologies for these
-      grantRecipient_org:
+      grantrecipient_org:
         description: The relevant (e.g. managing indirect costs) *organization* associated with the grantRecipient_individual.  If not explicitly designated or stated, presumably the grantRecipient_individual's primary organization or affiliation.
         examples:
         - value: Allen Institute
@@ -125,42 +136,42 @@ classes:
         - value: North Carolina State University
       # grant topic information
       # TODO: should definitely be several seprate classes
-      grantCharacter:
-        description: The relevant characteristics of the grant.
-        worktype: 
-          description: The type(s) of work that the grant might seek to support, elicit, or engender.  Lowercased. If it cannot be parsed or determined, then null.
-          multivalued: true
-          range: worktype
-          ifabsent: []
-          examples:
-          - value: [research]
-          - value: [curation]
-          - value: [research, curation]
-        workdomain: 
-          description: The broad categorical / topical domain(s) of the associated grant, across, in, or with which the work is to be done. If it cannot be parsed or determined, then null.
-          multivalued: true
-          range: workdomain
-          ifabsent: []
-          examples:
-          - value: [biosciences]
-          - value: [engineering]
-          - value: [biosciences, engineering]
-        openScienceTraits: 
-          description: The aspects or characteristics of the associated grant which are relevant to Public Access and/or Open-Science. If no such aspects are found, then an empty list, [].
-          multivalued: true
-          range: openScienceTraits
-          ifabsent: []
-          examples:
-          - value: [data sharing]
-          - value: [data storage]
-          - value: [data sharing, data storage]  
+      #grantcharacter:
+      #  description: The relevant characteristics of the grant.
+      worktype: 
+        description: The type(s) of work that the grant might seek to support, elicit, or engender.  Lowercased. If it cannot be parsed or determined, then null.
+        multivalued: true
+        range: worktype
+        ifabsent: null
+        examples:
+        - value: [research]
+        - value: [curation]
+        - value: [research, curation]
+      workdomain: 
+        description: The broad categorical / topical domain(s) of the associated grant, across, in, or with which the work is to be done. If it cannot be parsed or determined, then null.
+        multivalued: true
+        range: workdomain
+        ifabsent: null
+        examples:
+        - value: [biosciences]
+        - value: [engineering]
+        - value: [biosciences, engineering]
+      opensciencetraits: 
+        description: The aspects or characteristics of the associated grant which are relevant to Public Access and/or Open-Science. If no such aspects are found, then an empty list, [].
+        multivalued: true
+        range: opensciencetraits
+        ifabsent: null
+        examples:
+        - value: [data sharing]
+        - value: [data storage]
+        - value: [data sharing, data storage]  
   # END grantRecord
 
 
 # begin enums (https://linkml.io/linkml/schemas/models.html#enums)
 enums:
   worktype:
-    description: The type of work that a grant might seek to support, elicit, or engender.  Lowercased.  If it cannot be parsed or determined, then null.
+    #description: The type of work that a grant might seek to support, elicit, or engender.  Lowercased.  If it cannot be parsed or determined, then null.
     # generated with the help of chatGPT
     permissible_values:
       research: 
@@ -178,7 +189,7 @@ enums:
   #END worktype
   #BEGIN workdomain
   workdomain:
-    description: The broad categorical / topical domain across, in, or with which the work is to be done.
+    #description: The broad categorical / topical domain across, in, or with which the work is to be done.
     # TODO: There's almost certianly an ontology for this somewhere.
     permissible_values:
       biosciences:  
@@ -194,9 +205,9 @@ enums:
       interdisciplinary:
         description: Fields that necessarily and definitionally span multiple disciplines such as environmental science, data science, computational science, cognitive science, and global studies.  Typically characteried by a tacit or explicit substrate neutrality or independence.
   #END workdomain
-  #BEGIN openScienceTraits
-  openScienceTraits:
-    description: The aspects or characteristics which are relevant to Public Access and/or Open-Science.
+  #BEGIN opensciencetraits
+  opensciencetraits:
+    #description: The aspects or characteristics which are relevant to Public Access and/or Open-Science.
     # TODO: OS ontology goes here.
     # TODO: deduplicate this.
     permissible_values:
