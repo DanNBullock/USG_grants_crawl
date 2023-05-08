@@ -1923,7 +1923,6 @@ def detectLocalNSFData(dataDirectory=None,omnibusJSON=False):
         downloadNSFgrantsData(downloadURLs,saveDirectory=dataDirectory)
         return dataDirectory
 
-
 def NSFjson2DF(jsonPathOrFile):
     '''
     This function converts the NSF json file to a pandas dataframe.
