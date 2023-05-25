@@ -432,6 +432,7 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
     """
     import pandas as pd
     from glob import glob
+    import xmltodict
 
     # establish a vector with the currently accepted sources
     # currently no support for NIH
@@ -445,9 +446,42 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
     else:
         # if the source is NSF
         if sourceOrg=='NSF':
-            # load the presumed xml file
-            # process the NSF data
-            processNSFdata(dataLocation,singleMulti=singleMulti)
+            # load the directorate remap file
+            directorateRemap=pd.read_csv('../NSF_directorate_remap.csv')
+            # find the remapped directorate names
+            validDirectorateNames=directorateRemap['fixedName'].unique()
+
+            # given that the NSF data should have been unzipped at this point, they should now be in a single directory
+            # filled with xml files
+            # use glob to find all of the xml files
+            xmlFiles=glob(dataLocation+os.sep+'*.xml')
+            # create a "processed" subdirectory if it doesn't exist
+            if not os.path.exists(dataLocation+os.sep+'processed'):
+                os.makedirs(dataLocation+os.sep+'processed')
+            # iterate across the xml files
+            for iFiles in xmlFiles:
+                # use attemptXMLrepair to attempt to repair the xml file if necessary
+                attemptXMLrepair(iFiles)
+                # load the xml file into a dictionary, which presumably works now
+                with open(iFiles) as fd:
+                    doc = xmltodict.parse(fd.read())
+                # use applyFixesToRecord_NSF
+                # it was originally designed to work on a json files, but should work fine on a dictionary
+                # it will return a dictionary with the fixed record
+                fixedRecord=applyFixesToRecord_NSF(doc)
+                # save it down to the processed directory as an xml file with the same name
+                # get the file name
+                fileName=iFiles.split(os.sep)[-1]
+                # get the save path
+                savePath=dataLocation+os.sep+'processed'+os.sep+fileName
+                # save it down
+                with open(savePath, 'w') as fd:
+                    fd.write(xmltodict.unparse(fixedRecord, pretty=True))
+                # close the file
+                fd.close()
+            # NOTE: thus the NSF data have been processed and saved down to the "processed" subdirectory of the dataLocation
+            print('NSF data have been processed and saved down to ' + dataLocation+os.sep+'processed')
+            
         # if the source is grants.gov
         elif sourceOrg=='grantsGov':
                         
@@ -482,6 +516,7 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
             # if the singleMulti flag is set to single
             if singleMulti=='single':
                 # save the data as a single file
+                # NOTE: this is being saved down as a csv, maybe this isn't what we want to do in the long run
                 processedCurrentData.to_csv(dataLocation+os.sep+'processedGrantsGovData.csv',index=False)
             # if the singleMulti flag is set to multi
             elif singleMulti=='multi':
@@ -493,6 +528,145 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
                     currentOpportunityID=currentRow['OpportunityID']
                     # save the current row as an xml file
                     currentRow.to_xml(dataLocation+os.sep+'processed'+os.sep+currentOpportunityID+'.xml')
+        print('grants.gov data have been processed and saved down to ' + dataLocation+os.sep+'processed')
+    return
+
+def attemptXMLrepair(xmlPath,errorLogPath=None):
+    """
+    This function loads a putative xml file, and if it is not a valid xml file, attempts to repair it.
+    Inputs:
+        xmlPath: string
+            The path to the putative xml file.
+        errorLogPath: string
+            The path to the error log file.
+    Outputs:
+        None (saves down the repaired xml file if it is successful)
+    """
+    import xmltodict
+    import os
+    from bs4 import BeautifulSoup
+
+    # get the directory that the xml file is in
+    xmlDirectory=os.path.dirname(xmlPath)
+    # if no errorLogPath is passed in, set it to the xmlDirectory
+    if errorLogPath is None:
+        errorLogPath=xmlDirectory+os.sep+'errorLog.txt'
+    # check if the errorLogPath exists
+    if not os.path.isfile(errorLogPath):
+        # if it doesn't exist, create it
+        open(errorLogPath,'w').close()
+    
+
+    # check if the input file exists
+    if os.path.isfile(xmlPath):
+        # if it exists, attempt to load it as a dictionary
+        currXml=open(xmlPath).read()
+        # determine if it is a valid XML file
+        try:
+            currentDict=xmltodict.parse(currXml)
+        except:
+            try:
+                # throw a warning indicating that the file is not valid
+                print('Warning: '+xmlPath+' is not a valid XML file.')
+                print('Attempting to repair the file.')
+                # if it is not a valid XML file, use BeautifulSoup to repair it
+                currXml = BeautifulSoup(currXml, 'xml')
+                currentDict=xmltodict.parse(currXml.prettify())
+                # save the repaired xml file
+                with open(xmlPath, 'w') as outfile:
+                    outfile.write(currXml.prettify())
+                    # close the file
+                    outfile.close()
+            except:
+                # if it is still not a valid XML file, throw an error
+                print('Error: '+xmlPath+' is not a valid XML file.')
+                print('Skipping this file.')
+                # create an error log file in this directory if it doesn't exist
+                errorLogPath=os.path.join(xmlDirectory,'xml2json_errorLog.txt')
+                if not os.path.exists(errorLogPath):
+                    with open(errorLogPath, 'w') as outfile:
+                        outfile.write('Error: '+xmlPath+' is not a valid XML file.')
+                #   and append the error to the error log file
+                else:
+                    with open(errorLogPath, 'a') as outfile:
+                        outfile.write('Error: '+xmlPath+' is not a valid XML file.')
+    else: 
+    # if it's not a file, return an error
+        print('Error: '+xmlPath+' is not a valid XML file.')
+    return
+
+
+
+
+def applyFixesToRecord_NSF(inputRecord):
+    """
+    This function applies the established fixes to the NSF record.
+    Inputs:
+        inputRecord: dictionary
+            A dictionary containing the JSON data.
+    Outputs:
+        inputRecord: dictionary
+            A dictionary containing the JSON data.      
+    
+    """
+    # first, we need to convert the html entities to unicode
+    try: 
+        if inputRecord['rootTag']['Award']['AbstractNarration'] is not None:
+            soup=BeautifulSoup(inputRecord['rootTag']['Award']['AbstractNarration'],'html.parser')
+            inputRecord['rootTag']['Award']['AbstractNarration']=soup.get_text().replace('<br/>','\n')
+    except: 
+        # try and create an informative error log message
+        try:
+        # open the file for appending
+                with open(errorLogPath, 'a') as outfile:
+                outfile.write('Error locating AbstractNarration field for '+inputRecord['rootTag']['Award']['AwardID']+'\r')
+        #print('Error locating AbstractNarration field for '+inputRecord['rootTag']['Award']['AwardID'])
+        except:
+            pass
+    # next implement the directorate remapping 
+    try:
+        if inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName'] not in validDirectorateNames:
+            # get the current invalid directorate name
+            currentInvalidName=inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName']
+            # find its index in the directorate remap file
+            currentInvalidNameIndex=directorateRemap.loc[directorateRemap['foundName']==currentInvalidName].index[0]
+            # remap the directorate name
+            inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName']=directorateRemap.loc[currentInvalidNameIndex,'fixedName']
+    # if the directorate field is empty, check the division field
+    except:
+        try:
+            # if the longNamefield is empty, check the division field
+            if inputRecord['rootTag']['Award']['Organization']['Division']['LongName'] not in validDirectorateNames:
+                # get the current invalid directorate name
+                currentInvalidName=inputRecord['rootTag']['Award']['Organization']['Division']['LongName']
+                # find its index in the directorate remap file
+                currentInvalidNameIndex=directorateRemap.loc[directorateRemap['foundName']==currentInvalidName].index[0]
+                # remap the directorate name
+                inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName']=directorateRemap.loc[currentInvalidNameIndex,'fixedName']
+        except:
+            try:
+                # if this still fails, check if the field is empty, and then convert it to a "None" string
+                if inputRecord['rootTag']['Award']['Organization']['Division']['LongName'] not in validDirectorateNames:
+                    # get the current invalid directorate name
+                    currentInvalidName=inputRecord['rootTag']['Award']['Organization']['Division']['LongName']
+                    if isempty(currentInvalidName):
+                        currentInvalidName='None'
+                        # remap the directorate name
+                        inputRecord['rootTag']['Award']['Organization']['Directorate']['LongName']=currentInvalidName
+                    else:
+                        with open(errorLogPath, 'a') as outfile:
+                            outfile.write('Directorate remapping failed for '+inputRecord['rootTag']['Award']['AwardID']+'\r')
+                            outfile.write(currentInvalidName + ' not found in directorate remap file\r')
+            except:
+                with open(errorLogPath, 'a') as outfile:
+                    outfile.write('Directorate remapping failed for '+inputRecord['rootTag']['Award']['AwardID']+'\r')
+                    try:
+                        outfile.write(str(inputRecord['rootTag']['Award']['Organization']) + ' cause of error\r')
+                    except:
+                        pass
+
+    # TODO: implement future record fixes here
+    return inputRecord
 
 
 def reTypeGrantColumns(grantsDF):
