@@ -415,68 +415,85 @@ def downloadNSFgrantsData(downloadURLs,saveDirectory=None):
 # now that we have handled downloading, we need to process and curate the data
 def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
     """
+    This function processes downloaded data from any of the supported sources and saves down the proceessed resultant
+    in a "processed" subdirectory of the source data directory.  The singleMulti flag determines whether the data are
+    stored as a single file or as multiple files.
+
+    Inputs:
+        dataLocation: string
+            A string corresponding to the path to the downloaded data.
+        sourceOrg: string
+            A string corresponding to the source organization of the data.  Currently supported are 'NSF' and 'Grants.gov'.
+        singleMulti: string
+            A string corresponding to whether the data should be stored as a single file or as multiple files.  Currently
+            supported are 'single' and 'multi'.
     
-    
-    
+    Outputs: None    
     """
-
-
-
-    
-
-
-
-
-        
-                
-
-
-
-# grantXML_or_path='C:\\Users\\dbullock\\Documents\\code\\gitDir\\USG_grants_crawl\\inputData\\GrantsDBExtract20230113v2.xml'
-def grantXML_to_dictionary(grantXML_or_path):
-    """
-    Convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
-
-    Accepts either a path indicating a string, or a string corresponding to an XML structure
-
-    Parameters
-    ----------
-    grantXML_or_path : path str or XML str
-        Either a path indicating a string, or a string corresponding to an XML structure.    
-
-    Returns
-    -------
-    grantsDF : pandas.DataFrame
-        A dataframe containing grants data from grants.gov, converted from XML.  Likely includes NAN values for empty entries.
-
-    See Also
-    --------
-    grantXML_to_dictionary : convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
-    """
-    import xmltodict
     import pandas as pd
-    import os
+    from glob import glob
 
-    # if a string path is passed in
-    if isinstance(grantXML_or_path, str):
-    # check if its a filepath
-        if os.path.isfile(grantXML_or_path):
-            # open it
-            with open(grantXML_or_path, 'r') as f:
-                #govGrantData_raw = f.read()
-                govGrantData_dictionary = xmltodict.parse(f.read())
-        else:
-            # we assume it's an xml formatted structure string, and simply change the name
-            govGrantData_dictionary = xmltodict.parse(grantXML_or_path)
-        # convert xml to dictionary            
-    # convert to pandas dataframe
-    grantsDF=pd.DataFrame.from_records(govGrantData_dictionary['Grants']['OpportunitySynopsisDetail_1_0'], columns=['OpportunityID', 'OpportunityTitle','OpportunityNumber','AgencyCode', 'AgencyName', 'LastUpdatedDate','AwardCeiling', 'AwardFloor', 'EstimatedTotalProgramFunding', 'ExpectedNumberOfAwards', 'Description'])
-    # reformat the date
-    grantsDF['LastUpdatedDate']=grantsDF['LastUpdatedDate'].apply(lambda x: str(x)[0:2] + '/' + str(x)[2:4] + '/' + str(x)[4:8] )
-    # replace dashes with spaces in the text, to match altered keywords
-    # I don't know why I have to force specify string, descriptions should already be strings
-    grantsDF['Description']=grantsDF['Description'].apply(lambda x: str(x).replace('-',' ') )
-    return grantsDF
+    # establish a vector with the currently accepted sources
+    # currently no support for NIH
+    acceptedSources=['NSF','grantsGov']
+
+    # check if the source is in the accepted sources
+    if sourceOrg not in acceptedSources:
+        # if not, raise an error
+        raise ValueError('The source organization '+sourceOrg+' is not currently supported.  Supported sources are '+str(acceptedSources))
+    # otherwise proceed in a casewise fashion
+    else:
+        # if the source is NSF
+        if sourceOrg=='NSF':
+            # load the presumed xml file
+            # process the NSF data
+            processNSFdata(dataLocation,singleMulti=singleMulti)
+        # if the source is grants.gov
+        elif sourceOrg=='grantsGov':
+                        
+            # determine if the dataLocation is a directory or a specific file
+            if os.path.isdir(dataLocation):
+                # use glob to find an xml file with "GrantsDBExtract" in the name
+                grantsGovFilename=glob(dataLocation+os.sep+'*GrantsDBExtract*.xml')[0]
+                # if this file exists, load it with pandas
+                if os.path.isfile(grantsGovFilename):
+                    # load the presumed xml file from the dataLocation directory, which already should have been downloaded
+                    # use pandas to read the xml file
+                    currentData=pd.read_xml(grantsGovFilename)
+            elif os.path.isfile(dataLocation):
+                # if this file exists, load it with pandas
+                if os.path.isfile(dataLocation):
+                    # load the presumed xml file from the dataLocation directory, which already should have been downloaded
+                    # use pandas to read the xml file
+                    currentData=pd.read_xml(dataLocation)
+                else:
+                    # if not, raise an error
+                    raise ValueError('The grants.gov data file '+dataLocation+' does not exist.')
+            else:
+                # if not, raise an error
+                raise ValueError('The grants.gov data file '+dataLocation+' does not exist.')
+            # process the grants.gov data using repairFunding_GovGrantsDF
+            processedCurrentData=processGrantsGovData(dataLocation,singleMulti=singleMulti)
+            # save the processed data in the desired format, either as a single file, or per entry, as xml, using the "OpportunityID" as the xml file name
+            # check to see if a "processed" subdirectory exists
+            if not os.path.exists(dataLocation+os.sep+'processed'):
+                os.makedirs(dataLocation+os.sep+'processed')
+                
+            # if the singleMulti flag is set to single
+            if singleMulti=='single':
+                # save the data as a single file
+                processedCurrentData.to_csv(dataLocation+os.sep+'processedGrantsGovData.csv',index=False)
+            # if the singleMulti flag is set to multi
+            elif singleMulti=='multi':
+                # iterate across the rows
+                for iRows in range(processedCurrentData.shape[0]):
+                    # get the current row
+                    currentRow=processedCurrentData.iloc[iRows,:]
+                    # get the current row's OpportunityID
+                    currentOpportunityID=currentRow['OpportunityID']
+                    # save the current row as an xml file
+                    currentRow.to_xml(dataLocation+os.sep+'processed'+os.sep+currentOpportunityID+'.xml')
+
 
 def reTypeGrantColumns(grantsDF):
     """
@@ -549,77 +566,6 @@ def reTypeGrantColumns(grantsDF):
             warn('Type conversion for column ' + iColumns + ' failed.')
     print(grantsDF.dtypes)
     return grantsDF
-
-def downloadLatestGrantsXML(savePathDir=None):
-    """
-    Downloads the latest XML data structure from https://www.grants.gov/xml-extract.html.
-
-    Downloads to local directory if no path value entered for savePath.  Returns the resultant XML structure as well.
-
-    Parameters
-    ----------
-    savePathDir : str
-        A string path corresponding to the *directory* the user would like the grants.gov xml file downloaded.
-        Default value is None, resulting in download to current working directory.
-
-    Returns
-    -------
-    XML_filePath : str
-        The path to the resultant (e.g. downloaded and unzipped) data structure.
-
-    See Also
-    --------
-    grantXML_to_dictionary : convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
-    """
-    import os
-    import zipfile
-    from datetime import datetime
-    import requests
-
-    # check and see what the save path has been set to
-    if savePathDir == None:
-        savePathDir = ''
-    # check if the path exists
-    elif os.path.isdir(savePathDir):
-        # do nothing, the path is set
-        pass
-    # if the directory doesn't exist, *don't* make the directory, instead raise an error
-    else:
-        raise Exception ('Input save path\n' + savePathDir + '\ndoes not exist. Create first.')
-
-    # file pathing taken care of, begin prep for download
-    # grants.gov extract url
-    grantsExtractURL='https://www.grants.gov/extract/'
-    # generate all of the file name parts
-    dateString= datetime.today().strftime('%Y%m%d')
-    fileStem='GrantsDBExtract'
-    fileEnd='v2.zip'
-    fullFileName= fileStem + dateString + fileEnd
-    # set queryURL
-    queryURL= grantsExtractURL + fullFileName
-
-    # use recomended requests method
-    # https://stackoverflow.com/questions/9419162/download-returned-zip-file-from-url
-    def download_url(url, save_path, chunk_size=128):
-        r = requests.get(url, stream=True)
-        with open(save_path, 'wb') as fd:
-            for chunk in r.iter_content(chunk_size=chunk_size):
-                fd.write(chunk)
-        print(str(os.path.getsize(save_path)) + ' bytes file downloaded from\n' + url)
-        print('Saved to ' + savePathDir)
-
-    # establish save path
-    zipSavePath=os.path.join(savePathDir,fullFileName)
-    # download
-    download_url(queryURL, zipSavePath, chunk_size=128)
-    # unzip in place
-    with zipfile.ZipFile(zipSavePath, 'r') as zip_ref:
-        zip_ref.extractall(savePathDir)
-    print('Downloaded file unZipped, deleting original file.')
-    # should result in a file with exactly the same name, ecept XML instead of .zip
-    os.remove(zipSavePath)
-    print ('XML file located at\n' + zipSavePath.replace('zip','xml'))
-    return zipSavePath.replace('zip','xml')
 
 def repairFunding_GovGrantsDF(grantsDF):
     """
@@ -748,7 +694,305 @@ def repairFunding_GovGrantsDF(grantsDF):
     print(str(correctedCount) + ' grant funding value records repaired')
             
 
+    return grantsDF    
+
+def inferNames_GovGrantsDF(grantsDF):
+    """
+    Infers agency names for the grantsDF dataframe in accordance with established heuristics.
+
+    NOTE: this function CHANGES the values / content of the grantsDF from the information contained on grants.gov, including
+    but not limited to adding data columns, replacing null/empty values, and/or inferring missing values.
+
+    Parameters
+    ----------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov   
+
+    Returns
+    -------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov, with an additional column
+
+    See Also
+    --------
+    reTypeGrantColumns : Iterates through columns and retypes the columns in an intentional fashion.
+    repairFunding_GovGrantsDF : Repairs the content of the grantsDF dataframe in accordance with established heuristics.
+    """
+    import numpy
+    import copy
+    import pandas as pd
+    # silence!
+    pd.options.mode.chained_assignment = None
+    # get the column names
+    allColumnNameslist=list(grantsDF.columns)
+    # add a column for agency sub code
+    try: 
+        grantsDF.insert(allColumnNameslist.index('AgencyCode')+1,'AgencySubCode', '')
+    except:
+        pass
+    #quantColumns=['AgencyName','AgencyCode']
+    # set a fill value for null name values
+    fillValue='Other'
+
+    correctedCount=0
+    for iIndex,iRows in grantsDF.iterrows():
+        currAgencyName=iRows['AgencyName']
+        currAngencyCode=iRows['AgencyCode']
+        currAngencySubCode=''
+        inputInfo=[currAgencyName,currAngencyCode,currAngencySubCode]
+        # try and split the subcode out now
+        try:
+            currAngencySubCode=currAngencyCode.split('-',1)[1]
+            currAngencyCode=currAngencyCode.split('-',1)[0]
+        except:
+            currAngencySubCode=''
+        # go ahead and throw it in
+        grantsDF['AgencySubCode'].iloc[iIndex]=currAngencySubCode
+
+        #create a vector to hold all of these
+        
+        
+
+        # if the agency code is either nan or empty we'll try and fix it
+        if currAngencyCode == '':
+            
+            if not currAgencyName == '':
+                # use the capital letters to infer, replace commas with dashes
+                # start wit the full agency name
+                currAngencyCode=copy.deepcopy(currAgencyName)
+                # commas to dashes
+                currAngencyCode=currAngencyCode.replace(',','-')
+                # drop all non capital, non dash characters
+                currAngencyCode=''.join([char for char in currAngencyCode if char.isupper() or char == '-'])
+                try:
+                    currAngencySubCode=currAngencyCode.split('-',1)[1]
+                except:
+                    currAngencySubCode=''
+                currAngencyCode=currAngencyCode.split('-',1)[0]
+            
+            else:
+                # if there's no agency name available, just set both to 'Other'
+                currAngencyCode=fillValue
+                currAngencySubCode=''
+                currAgencyName=fillValue
+
+            #correctedCount =correctedCount + 1
+
+        # if the name is null set it to the fill value as well
+        if currAgencyName == '':
+            currAgencyName=fillValue
+            #correctedCount =correctedCount + 1
+            try:
+                currAngencySubCode=currAngencyCode.split('-',1)[1]
+                currAngencyCode=currAngencyCode.split('-',1)[0]
+            except:
+                currAngencySubCode=''
+        
+        outputInfo=[currAgencyName,currAngencyCode,currAngencySubCode]
+        #if there is new information to add, update the record
+        if not inputInfo==outputInfo:
+            #print(outputInfo)
+            grantsDF['AgencyName'].iloc[iIndex] =  outputInfo[0]
+            grantsDF['AgencyCode'].iloc[iIndex] =  outputInfo[1]
+            grantsDF['AgencySubCode'].iloc[iIndex] =  outputInfo[2]
+            correctedCount =correctedCount + 1
+            # dont bother updating if not relevant.
+        #print(iIndex)    
+    print(str(correctedCount) + ' grant agency name or code value records altered')
     return grantsDF
+
+def prepareGrantsDF(grantsDF, repair=True):
+    """
+    Resets column types, infers agency names, and repairs grant values
+
+    NOTE: this function CHANGES the values / content of the grantsDF from the information contained on grants.gov, including
+    but not limited to adding data columns, replacing null/empty values, and/or inferring missing values.
+
+    Parameters
+    ----------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov   
+
+    Returns
+    -------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov, that has been prepared for analysis
+
+    See Also
+    --------
+    reTypeGrantColumns : Iterates through columns and retypes the columns in an intentional fashion.
+    repairFunding_GovGrantsDF : Repairs the content of the grantsDF dataframe in accordance with established heuristics.
+    inferNames_GovGrantsDF : Infers agency names for the grantsDF dataframe in accordance with established heuristics.
+    """
+
+    # first do the retyping
+    grantsDF=reTypeGrantColumns(grantsDF)
+    # then redo the names
+    grantsDF=inferNames_GovGrantsDF(grantsDF)
+    #then do the repair if requested
+    if repair:
+        grantsDF=repairFunding_GovGrantsDF(grantsDF)
+    
+    return grantsDF
+
+def prepareGrantsDF(grantsDF, repair=True):
+    """
+    Resets column types, infers agency names, and repairs grant values
+
+    NOTE: this function CHANGES the values / content of the grantsDF from the information contained on grants.gov, including
+    but not limited to adding data columns, replacing null/empty values, and/or inferring missing values.
+
+    Parameters
+    ----------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov   
+
+    Returns
+    -------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov, that has been prepared for analysis
+
+    See Also
+    --------
+    reTypeGrantColumns : Iterates through columns and retypes the columns in an intentional fashion.
+    repairFunding_GovGrantsDF : Repairs the content of the grantsDF dataframe in accordance with established heuristics.
+    inferNames_GovGrantsDF : Infers agency names for the grantsDF dataframe in accordance with established heuristics.
+    """
+
+    # first do the retyping
+    grantsDF=reTypeGrantColumns(grantsDF)
+    # then redo the names
+    grantsDF=inferNames_GovGrantsDF(grantsDF)
+    #then do the repair if requested
+    if repair:
+        grantsDF=repairFunding_GovGrantsDF(grantsDF)
+    
+    return grantsDF
+        
+                
+
+
+
+# grantXML_or_path='C:\\Users\\dbullock\\Documents\\code\\gitDir\\USG_grants_crawl\\inputData\\GrantsDBExtract20230113v2.xml'
+def grantXML_to_dictionary(grantXML_or_path):
+    """
+    Convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
+
+    Accepts either a path indicating a string, or a string corresponding to an XML structure
+
+    Parameters
+    ----------
+    grantXML_or_path : path str or XML str
+        Either a path indicating a string, or a string corresponding to an XML structure.    
+
+    Returns
+    -------
+    grantsDF : pandas.DataFrame
+        A dataframe containing grants data from grants.gov, converted from XML.  Likely includes NAN values for empty entries.
+
+    See Also
+    --------
+    grantXML_to_dictionary : convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
+    """
+    import xmltodict
+    import pandas as pd
+    import os
+
+    # if a string path is passed in
+    if isinstance(grantXML_or_path, str):
+    # check if its a filepath
+        if os.path.isfile(grantXML_or_path):
+            # open it
+            with open(grantXML_or_path, 'r') as f:
+                #govGrantData_raw = f.read()
+                govGrantData_dictionary = xmltodict.parse(f.read())
+        else:
+            # we assume it's an xml formatted structure string, and simply change the name
+            govGrantData_dictionary = xmltodict.parse(grantXML_or_path)
+        # convert xml to dictionary            
+    # convert to pandas dataframe
+    grantsDF=pd.DataFrame.from_records(govGrantData_dictionary['Grants']['OpportunitySynopsisDetail_1_0'], columns=['OpportunityID', 'OpportunityTitle','OpportunityNumber','AgencyCode', 'AgencyName', 'LastUpdatedDate','AwardCeiling', 'AwardFloor', 'EstimatedTotalProgramFunding', 'ExpectedNumberOfAwards', 'Description'])
+    # reformat the date
+    grantsDF['LastUpdatedDate']=grantsDF['LastUpdatedDate'].apply(lambda x: str(x)[0:2] + '/' + str(x)[2:4] + '/' + str(x)[4:8] )
+    # replace dashes with spaces in the text, to match altered keywords
+    # I don't know why I have to force specify string, descriptions should already be strings
+    grantsDF['Description']=grantsDF['Description'].apply(lambda x: str(x).replace('-',' ') )
+    return grantsDF
+
+
+
+def downloadLatestGrantsXML(savePathDir=None):
+    """
+    Downloads the latest XML data structure from https://www.grants.gov/xml-extract.html.
+
+    Downloads to local directory if no path value entered for savePath.  Returns the resultant XML structure as well.
+
+    Parameters
+    ----------
+    savePathDir : str
+        A string path corresponding to the *directory* the user would like the grants.gov xml file downloaded.
+        Default value is None, resulting in download to current working directory.
+
+    Returns
+    -------
+    XML_filePath : str
+        The path to the resultant (e.g. downloaded and unzipped) data structure.
+
+    See Also
+    --------
+    grantXML_to_dictionary : convert the XML data structure from https://www.grants.gov/xml-extract.html to a pandas dataframe.
+    """
+    import os
+    import zipfile
+    from datetime import datetime
+    import requests
+
+    # check and see what the save path has been set to
+    if savePathDir == None:
+        savePathDir = ''
+    # check if the path exists
+    elif os.path.isdir(savePathDir):
+        # do nothing, the path is set
+        pass
+    # if the directory doesn't exist, *don't* make the directory, instead raise an error
+    else:
+        raise Exception ('Input save path\n' + savePathDir + '\ndoes not exist. Create first.')
+
+    # file pathing taken care of, begin prep for download
+    # grants.gov extract url
+    grantsExtractURL='https://www.grants.gov/extract/'
+    # generate all of the file name parts
+    dateString= datetime.today().strftime('%Y%m%d')
+    fileStem='GrantsDBExtract'
+    fileEnd='v2.zip'
+    fullFileName= fileStem + dateString + fileEnd
+    # set queryURL
+    queryURL= grantsExtractURL + fullFileName
+
+    # use recomended requests method
+    # https://stackoverflow.com/questions/9419162/download-returned-zip-file-from-url
+    def download_url(url, save_path, chunk_size=128):
+        r = requests.get(url, stream=True)
+        with open(save_path, 'wb') as fd:
+            for chunk in r.iter_content(chunk_size=chunk_size):
+                fd.write(chunk)
+        print(str(os.path.getsize(save_path)) + ' bytes file downloaded from\n' + url)
+        print('Saved to ' + savePathDir)
+
+    # establish save path
+    zipSavePath=os.path.join(savePathDir,fullFileName)
+    # download
+    download_url(queryURL, zipSavePath, chunk_size=128)
+    # unzip in place
+    with zipfile.ZipFile(zipSavePath, 'r') as zip_ref:
+        zip_ref.extractall(savePathDir)
+    print('Downloaded file unZipped, deleting original file.')
+    # should result in a file with exactly the same name, ecept XML instead of .zip
+    os.remove(zipSavePath)
+    print ('XML file located at\n' + zipSavePath.replace('zip','xml'))
+    return zipSavePath.replace('zip','xml')
+
+
                     
 def inferNames_GovGrantsDF(grantsDF):
     """
