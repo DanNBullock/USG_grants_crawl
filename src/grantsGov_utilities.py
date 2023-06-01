@@ -446,6 +446,7 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
     else:
         # if the source is NSF
         if sourceOrg=='NSF':
+            # TODO: is this even used here?
             # load the directorate remap file
             directorateRemap=pd.read_csv('../NSF_directorate_remap.csv')
             # find the remapped directorate names
@@ -507,7 +508,7 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
                 # if not, raise an error
                 raise ValueError('The grants.gov data file '+dataLocation+' does not exist.')
             # process the grants.gov data using repairFunding_GovGrantsDF
-            processedCurrentData=processGrantsGovData(dataLocation,singleMulti=singleMulti)
+            processedCurrentData=repairFunding_GovGrantsDF(currentData,singleMulti=singleMulti)
             # save the processed data in the desired format, either as a single file, or per entry, as xml, using the "OpportunityID" as the xml file name
             # check to see if a "processed" subdirectory exists
             if not os.path.exists(dataLocation+os.sep+'processed'):
@@ -598,7 +599,7 @@ def attemptXMLrepair(xmlPath,errorLogPath=None):
 
 
 
-def applyFixesToRecord_NSF(inputRecord):
+def applyFixesToRecord_NSF(inputRecord,errorLogPath=None):
     """
     This function applies the established fixes to the NSF record.
     Inputs:
@@ -609,6 +610,19 @@ def applyFixesToRecord_NSF(inputRecord):
             A dictionary containing the JSON data.      
     
     """
+    from bs4 import BeautifulSoup
+    import os
+
+    # if no errorLogPath is passed in, set it to the presumptive data directory, which is
+    # "inputData" in the root of the repository
+    if errorLogPath is None:
+        errorLogPath=os.path.join('inputData','NSF-fixes_errorLog.txt')
+
+    # find location of directorate remap 
+    directorateRemap=pd.read_csv('../NSF_directorate_remap.csv')
+    # find the remapped directorate names
+    validDirectorateNames=directorateRemap['fixedName'].unique()
+
     # first, we need to convert the html entities to unicode
     try: 
         if inputRecord['rootTag']['Award']['AbstractNarration'] is not None:
@@ -619,7 +633,7 @@ def applyFixesToRecord_NSF(inputRecord):
         try:
         # open the file for appending
                 with open(errorLogPath, 'a') as outfile:
-                outfile.write('Error locating AbstractNarration field for '+inputRecord['rootTag']['Award']['AwardID']+'\r')
+                    outfile.write('Error locating AbstractNarration field for '+inputRecord['rootTag']['Award']['AwardID']+'\r')
         #print('Error locating AbstractNarration field for '+inputRecord['rootTag']['Award']['AwardID'])
         except:
             pass
