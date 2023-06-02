@@ -22,14 +22,21 @@ def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect,caseSensit
     fileList=os.listdir(directoryPath)
     # create an empty dictionary with the tuples of the string phrase and the file name as the keys
     outputDict={}
+    # iterate across pairings of the string phrases and the file names in order to create the dictionary keys
+    for iStringPhrase in stringPhraseList:
+        for iFile in fileList:
+            outputDict[(iStringPhrase,iFile)]=False
+
     # iterate across the stringPhraseList and apply the regex search to each file
     for iStringPhrase in stringPhraseList:
+        # temporary debut print statement
+        print('Searching for the string phrase: '+iStringPhrase)
         # get the list of files in the directory
         fileList=os.listdir(directoryPath)
         # iterate across the files
         for iFile in fileList:
             # apply the regex search to the file and place it in the appropriate tuple dictionary entry
-            outputDict[iStringPhrase][iFile]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect,caseSensitive=caseSensitive)
+            outputDict[(iStringPhrase,iFile)]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect,caseSensitive=caseSensitive)
 
     return outputDict
 
@@ -186,6 +193,10 @@ def applyRegexToInput(inputText,stringPhrase,caseSensitive=False):
         A boolean indicating whether the stringPhrase was found in the inputText.
     """
     import re
+    # temporary debug print statement
+    #print ('stringPhrase: '+stringPhrase)
+    #print (type(stringPhrase))
+
     if caseSensitive:
         compiledSearch=re.compile(stringPhrase)
     else:
@@ -220,10 +231,11 @@ def applyRegexToXMLFile(xmlFilePath,stringPhrase,fieldsSelect,caseSensitive=Fals
     """
     import xmltodict
     import re
-    if caseSensitive:
-        compiledSearch=re.compile(stringPhrase)
-    else:
-        compiledSearch=re.compile(stringPhrase.lower())
+    # this is laready done in the function
+    # if caseSensitive:
+    #    compiledSearch=re.compile(stringPhrase)
+    #else:
+    #   compiledSearch=re.compile(stringPhrase.lower())
     # if the xmlFilePath is a string, then assume it's the file path and load the file
     if type(xmlFilePath)==str:
         with open(xmlFilePath) as f:
@@ -235,9 +247,23 @@ def applyRegexToXMLFile(xmlFilePath,stringPhrase,fieldsSelect,caseSensitive=Fals
     # iterate through the elements of fieldsSelect list to get to the content of the final field
     for iField in fieldsSelect:
         xmlDict=xmlDict[iField]
+    # if xmlDict is empty, just go ahead and return False
+    if xmlDict==None:
+        return False
+    # otherwise, check if it has a lenght of greater than 0
+    elif len(xmlDict)>0:
+        return False
+    # otherwise proceed with the search
+    
     # now that we have the relevant contet, we need to convert the text to nlp-ready text
     # use prepareTextForNLP(inputText,stopwordsList=None,lemmatizer=None)
-    xmlDict=prepareAllTextsForNLP(xmlDict)
+    xmlDict=prepareTextForNLP(xmlDict)
+    print ('stringPhrase: '+stringPhrase)
+    print (type(stringPhrase))
+    stringPhrase=prepareTextForNLP(stringPhrase)
+    # temporary debug print statement, assume it is a list and print each item
+    print ('stringPhrase: '+ stringPhrase)
+    print (type(stringPhrase))
 
     # use applyRegexToInput
     outputBool=applyRegexToInput(xmlDict,stringPhrase,caseSensitive=caseSensitive)
