@@ -31,7 +31,7 @@ def detectLocalDataSource(location, sourceOrg, singleMulti='single'):
         - NSF : year-wise tar or zip files containing per-award XML files
     """
     import os
-    import glob
+    from glob import glob
 
     # check if the location exists
     if os.path.isdir(location):
@@ -53,9 +53,9 @@ def detectLocalDataSource(location, sourceOrg, singleMulti='single'):
                 grantsGovFileStem='GrantsDBExtract'
                 # check for the file, check for either xml or json, case insensitive
                 # first check for xml
-                grantsGovFile=glob.glob(location + grantsGovFileStem + '*.[xX][mM][lL]')
+                grantsGovFile=glob(location + grantsGovFileStem + '*.[xX][mM][lL]')
                 # then check for json, and cat the results
-                grantsGovFile=grantsGovFile+glob.glob(location + grantsGovFileStem + '*.[jJ][sS][oO][nN]')
+                grantsGovFile=grantsGovFile+glob(location + grantsGovFileStem + '*.[jJ][sS][oO][nN]')
                 # if the file is found, return the path
                 if len(grantsGovFile)>0:
                     return grantsGovFile[0]
@@ -70,7 +70,7 @@ def detectLocalDataSource(location, sourceOrg, singleMulti='single'):
                 # the NSF data, with separate xml files for each grant
                 # named by the grants.gov ID number
                 # check for the multiple files, just assume they are numbered and end with .xml
-                grantsGovFiles=glob.glob(location + '*.xml')
+                grantsGovFiles=glob(location + '*.xml')
                 # check if the returned file names are numbers and thus valid
                 # do this by iterating through the list of returns and checking if they are string numbers
                 # if they are, return the list of files
@@ -102,9 +102,9 @@ def detectLocalDataSource(location, sourceOrg, singleMulti='single'):
                 # check for the file
                 # check for both xml and json, case insensitive
                 # first check for xml
-                nsfFile=glob.glob(location + nsfFileStem + '*.[xX][mM][lL]')
+                nsfFile=glob(location + nsfFileStem + '*.[xX][mM][lL]')
                 # then check for json, and cat the results
-                nsfFile=nsfFile+glob.glob(location + nsfFileStem + '*.[jJ][sS][oO][nN]')
+                nsfFile=nsfFile+glob(location + nsfFileStem + '*.[jJ][sS][oO][nN]')
                 # if the file is found, return the path
                 if len(nsfFile)>0:
                     return nsfFile[0]
@@ -115,7 +115,7 @@ def detectLocalDataSource(location, sourceOrg, singleMulti='single'):
             # check for the multiple files
             elif singleMulti=='multi':
                 # check for the multiple files, just assume they are numbered and end with .xml
-                nsfFiles=glob.glob(location + '*.xml')
+                nsfFiles=glob(location + '*.xml')
                 # check if the returned file names are numbers and thus valid
                 # do this by iterating through the list of returns and checking if they are string numbers
                 # if they are, return the list of files
@@ -159,16 +159,40 @@ def getDataFromRemoteSource(destination,sourceOrg):
     import tarfile
     from glob import glob
 
+    # check if the input destination path already terminates in a directory named sourceOrg
+    if destination.split(os.sep)[-1]==sourceOrg:
+        # if it already terminates in the sourceOrg directory split out the paths thusly
+        rawDestinationPath=os.sep.join(destination.split(os.sep)[:-1])
+        destinationPlusSourcePath=os.path.join(destination,sourceOrg)
+        destination=destinationPlusSourcePath
+    else:
+        # otherwise combine the components to the the relevant paths
+        rawDestinationPath=destination
+        destinationPlusSourcePath=os.path.join(destination,sourceOrg)
+        destination=destinationPlusSourcePath
+    
+    print('Searching for data in ' +destinationPlusSourcePath + '...')
 
-    # check if the destination exists
-    if os.path.isdir(destination):
-        # if it does not, create a directory for the sourceOrg data
-        os.mkdir(destination + os.sep() + sourceOrg)
-        # set this as the new destination
-        destination=destination + os.sep() + sourceOrg
-    # if it does exist, check for the data
+    # in either case
+    # first check if the destinationPlusSourcePath exists, as this is the prefered location
+    if not os.path.isdir(destinationPlusSourcePath):
+        # if it doesn't exist, check if the raw destination exists
+        if not os.path.isdir(rawDestinationPath):
+            # if it doesn't exist, create it
+            os.mkdir(rawDestinationPath)
+            # then add the sourceOrg directory
+            os.mkdir(destinationPlusSourcePath)
+            # then set the destination to the destinationPlusSourcePath
+            destination=destinationPlusSourcePath
 
-
+        # if the raw destination does exist, but the sourceOrg doesn't just create the sourceOrg directory
+        else:
+            os.mkdir(destinationPlusSourcePath)
+            # then set the destination to the destinationPlusSourcePath
+            destination=destinationPlusSourcePath  
+        
+    # if the destinationPlusSourcePath does exist, set the destination to the destinationPlusSourcePath
+    # and then check that directory for the 
     else:
         # NOTE: this is where to add additional data sources
         # if it does exist, check for the data
@@ -178,13 +202,17 @@ def getDataFromRemoteSource(destination,sourceOrg):
             # use the file stem to check for the file
             grantsGovFileStem='GrantsDBExtract'
             # first check for xml
-            grantsGovFile=glob.glob(destination + grantsGovFileStem + '*.[xX][mM][lL]')
+            grantsGovFile=glob(destination + os.sep + grantsGovFileStem + '*.xml')
+
             # then check for json, and cat the results
             # if the file is found, return True, no need to go and re-download
             if len(grantsGovFile)>0:
+                print('The grants.gov data has already been downloaded.  No need to re-download.')
+                print('The file is located at ' + grantsGovFile[0] + '.')
                 return grantsGovFile[0]
             # if the file is not found, continue
             else:
+                print('The grants.gov data has not yet been downloaded.  Downloading now.')
                 pass
 
         # for the NIH data, check for the single xml
@@ -194,7 +222,7 @@ def getDataFromRemoteSource(destination,sourceOrg):
             # use the file stem to check for the file
             nihFileStem='NIH_Awards'
             # first check for xml
-            nihFile=glob.glob(destination + nihFileStem + '*.[xX][mM][lL]')
+            nihFile=glob(destination + nihFileStem + '*.[xX][mM][lL]')
             # then check for json, and cat the results
             # if the file is found, return True, no need to go and re-download
             if len(nihFile)>0:
@@ -207,9 +235,9 @@ def getDataFromRemoteSource(destination,sourceOrg):
         elif sourceOrg=='NSF':
             # check for zip and tar files
             # first check for zip
-            nsfFiles=glob.glob(destination + '*.zip')
+            nsfFiles=glob(destination + '*.zip')
             # then check for tar, cat the results
-            nsfFiles=nsfFiles+glob.glob(destination + '*.tar')
+            nsfFiles=nsfFiles+glob(destination + '*.tar')
             # if the file are found, return True, no need to go and re-download
             if len(nsfFiles)>0:
                 return nsfFiles
@@ -231,6 +259,7 @@ def getDataFromRemoteSource(destination,sourceOrg):
                 # this returns the path to the downloaded data
                 try: 
                     grantsGovFile=downloadGrantsGovGrantsData(destination)
+                    print('The grants.gov data has been downloaded to ' + grantsGovFile + '.')
                 except:
                     print('The download of the grants.gov data failed.  Please check the source and try again.')
                     return False

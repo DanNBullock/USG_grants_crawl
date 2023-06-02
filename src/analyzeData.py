@@ -336,6 +336,17 @@ def detectDataSourceFromSchema(testDirOrFile):
             A string corresponding to the data source of the file or directory.  Currently either "NSF" or "grantsGov"
     """
     import os
+    import xmltodict
+
+    # parametrs to set:
+    # minFieldThreshold: int
+    #  The minimum number of fields that must match known fields for the corresponding schema in order for it to be considerd a valid mathc
+    minFieldThreshold=3
+    # A list of fields found in the NSF schema
+    NSFfields=['AwardID','AbstractNarration','AwardTitle','AwardAmount']
+    # A list of fields found in the grants.gov schema
+    grantsGovFields=['OpportunityID','Synopsis','Title','EstimatedTotalProgramFunding']
+
     # for a detailed overview of the NSF grant award data schema view:
     # https://github.com/macks22/nsf-award-data/blob/master/docs/nsf-xml-schema-details.md#xml-schema-breakdown
     # the schema itself can be downloaded from here:
@@ -348,3 +359,42 @@ def detectDataSourceFromSchema(testDirOrFile):
     # determine if input is file or directory
     if os.path.isdir(testDirOrFile):
         # if it's a directory, then simply pick the first xml file in the directory
+        testFile=os.listdir(testDirOrFile)[0]
+    else:
+        # if it's a file, then simply use that file
+        testFile=testDirOrFile
+    # read in the presumptive xml file using xmltodict
+    # hopefully it is validly structured and we don't need to use beautiful soup to fix it
+    with open(testFile) as f:
+        xmlDict=xmltodict.parse(f.read())
+    # close the file
+    f.close()
+    # now check it for the relevant fields
+    # generate a list of all keys in the xmlDict, including nested keys
+    allKeys=[]
+    for key in xmlDict.keys():
+        allKeys.append(key)
+        if type(xmlDict[key])==dict:
+            for subKey in xmlDict[key].keys():
+                allKeys.append(subKey)
+    # now check if the NSF fields are present
+    # NOTE: add checks for other data schemas here as additonal data sources are added
+    NSFfieldCount=0
+    for NSFfield in NSFfields:
+        if NSFfield in allKeys:
+            NSFfieldCount+=1
+    # now check if the grants.gov fields are present
+    grantsGovFieldCount=0
+    for grantsGovField in grantsGovFields:
+        if grantsGovField in allKeys:
+            grantsGovFieldCount+=1
+    # now determine which data source is the best match
+    if NSFfieldCount>=minFieldThreshold:
+        dataSource='NSF'
+    elif grantsGovFieldCount>=minFieldThreshold:
+        dataSource='grantsGov'
+    else:    
+        dataSource=None
+    return dataSource
+
+

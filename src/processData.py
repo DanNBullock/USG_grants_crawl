@@ -75,48 +75,63 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
                         
             # determine if the dataLocation is a directory or a specific file
             if os.path.isdir(dataLocation):
+                # establish the processed data directory
+                processedDataDir=dataLocation+os.sep+'processed'
                 # use glob to find an xml file with "GrantsDBExtract" in the name
                 grantsGovFilename=glob(dataLocation+os.sep+'*GrantsDBExtract*.xml')[0]
                 # if this file exists, load it with pandas
                 if os.path.isfile(grantsGovFilename):
-                    # load the presumed xml file from the dataLocation directory, which already should have been downloaded
-                    # use pandas to read the xml file
-                    currentData=pd.read_xml(grantsGovFilename)
+                    # Load it and parse it with xmltodict
+                    with open(dataLocation) as fd:
+                        doc = xmltodict.parse(fd.read())
+                    fd.close()
+                # extract the list of grants
+                grants=doc['Grants']['OpportunitySynopsisDetail_1_0']
+                # convert the grants to a pandas dataframe
+                currentData=pd.DataFrame(grants)
+
             elif os.path.isfile(dataLocation):
-                # if this file exists, load it with pandas
-                if os.path.isfile(dataLocation):
-                    # load the presumed xml file from the dataLocation directory, which already should have been downloaded
-                    # use pandas to read the xml file
-                    currentData=pd.read_xml(dataLocation)
-                else:
-                    # if not, raise an error
-                    raise ValueError('The grants.gov data file '+dataLocation+' does not exist.')
+                # establish the processed data directory
+                
+                processedDataDir=os.path.dirname(dataLocation)+os.sep+'processed'
+                # Load it and parse it with xmltodict
+                with open(dataLocation) as fd:
+                    doc = xmltodict.parse(fd.read())
+                # close the file   
+                fd.close()
+                # extract the list of grants
+                grants=doc['Grants']['OpportunitySynopsisDetail_1_0']
+                # convert the grants to a pandas dataframe
+                currentData=pd.DataFrame(grants)
+ 
             else:
                 # if not, raise an error
                 raise ValueError('The grants.gov data file '+dataLocation+' does not exist.')
             # process the grants.gov data using repairFunding_GovGrantsDF
-            processedCurrentData=repairFunding_GovGrantsDF(currentData,singleMulti=singleMulti)
+            processedCurrentData=prepareGrantsDF(currentData)
             # save the processed data in the desired format, either as a single file, or per entry, as xml, using the "OpportunityID" as the xml file name
             # check to see if a "processed" subdirectory exists
-            if not os.path.exists(dataLocation+os.sep+'processed'):
-                os.makedirs(dataLocation+os.sep+'processed')
+            if not os.path.exists(processedDataDir):
+                os.makedirs(processedDataDir)
                 
             # if the singleMulti flag is set to single
             if singleMulti=='single':
                 # save the data as a single file
                 # NOTE: this is being saved down as a csv, maybe this isn't what we want to do in the long run
-                processedCurrentData.to_csv(dataLocation+os.sep+'processedGrantsGovData.csv',index=False)
+                processedCurrentData.to_csv(processedDataDir+os.sep+'processedGrantsGovData.csv',index=False)
             # if the singleMulti flag is set to multi
             elif singleMulti=='multi':
                 # iterate across the rows
                 for iRows in range(processedCurrentData.shape[0]):
                     # get the current row
-                    currentRow=processedCurrentData.iloc[iRows,:]
+                    currentRow=processedCurrentData.iloc[[iRows],:]
+                    print(type(currentRow))
+                    print(currentRow)
                     # get the current row's OpportunityID
                     currentOpportunityID=currentRow['OpportunityID']
                     # save the current row as an xml file
-                    currentRow.to_xml(dataLocation+os.sep+'processed'+os.sep+currentOpportunityID+'.xml')
-        print('grants.gov data have been processed and saved down to ' + dataLocation+os.sep+'processed')
+                    currentRow.to_xml(processedDataDir+os.sep+currentOpportunityID+'.xml')
+        print('grants.gov data have been processed and saved down to ' + processedDataDir)
     return
 
 def attemptXMLrepair(xmlPath,errorLogPath=None):
@@ -387,13 +402,20 @@ def repairFunding_GovGrantsDF(grantsDF):
     for iIndex,iRows in grantsDF.iterrows():
 
         # get the grant quantificaiton values for this row 
-        grantQuantificationValues=[iRows[iColumns] for iColumns in quantColumns]        
+        grantQuantificationValues=list(map(int,[iRows[iColumns] for iColumns in quantColumns]))        
         # get the sorted order of the vector
         #sortedOrder=np.argsort(grantQuantificationValues)
         grantQuantificationValues_sorted=sorted(grantQuantificationValues)
         # create a vector for the sorting to occur in
         grantQuantificationValues_RE_sorted=copy.deepcopy(grantQuantificationValues)
 
+        # temporary error check to ensure all contents are numbers
+        # for iValues in grantQuantificationValues:
+        #    if not isinstance(iValues,(int,float)):
+        #        print('Error: non-numeric value in grantQuantificationValues')
+        #        print(grantQuantificationValues)
+        #        print(iRows)
+        #        return
         #pctThresh=1
         # if the award floor is less than 1% of the total funding, set it to zero
         #if (grantQuantificationValues_RE_sorted[1]*(100/pctThresh))<grantQuantificationValues_RE_sorted[2]:
