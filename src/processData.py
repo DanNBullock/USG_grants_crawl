@@ -125,12 +125,25 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
                 for iRows in range(processedCurrentData.shape[0]):
                     # get the current row
                     currentRow=processedCurrentData.iloc[[iRows],:]
-                    print(type(currentRow))
-                    print(currentRow)
                     # get the current row's OpportunityID
-                    currentOpportunityID=currentRow['OpportunityID']
-                    # save the current row as an xml file
-                    currentRow.to_xml(processedDataDir+os.sep+currentOpportunityID+'.xml')
+                    currentOpportunityID=currentRow['OpportunityID'].values[0].astype(str)
+                    # establish the save path
+                    currSavePath=os.path.join(processedDataDir,currentOpportunityID+'.xml')
+                    # attempt to save the current row as an xml file
+                    try:
+                        # pandas to_xml doesn't seem to work
+                        # currentRow.to_xml(currSavePath)
+                        # so first we convert to a dictionary
+                        currentRowDict=currentRow.to_dict(orient='records')
+                        # then we save it down using xmltodict
+                        with open(currSavePath, 'w') as fd:
+                            # NOTE: kind of arbitrarily having to implement 'rootTag' as the root of the xml structure, a convention borrowed from the NSF format
+                            fd.write(xmltodict.unparse({'rootTag': currentRowDict}, pretty=True))
+                        # close the file
+                        fd.close()
+                    # if it fails throw an error
+                    except:
+                        raise ValueError('The grants.gov data could not be saved down to '+currSavePath + '\n' + 'The current row content is: ' + str(currentRow) )
         print('grants.gov data have been processed and saved down to ' + processedDataDir)
     return
 
@@ -352,6 +365,14 @@ def reTypeGrantColumns(grantsDF):
                     grantsDF[iColumns].fillna(replacementValues[2], inplace=True)
                     # then replace the types 
                     grantsDF=grantsDF.astype({iColumns : replacementTypes[2]}, copy=False)
+                    # didn't seem to work, so now we try column specific
+                    # grantsDF[iColumns]=grantsDF[iColumns].astype(replacementTypes[2])
+                    # that didn't work either
+                    # so lets see what copilot does
+                    # here we convert the dtype of the column from object to string
+                    # grantsDF[iColumns]=grantsDF[iColumns].astype('|S')
+                    # none of this seems to work or matter, so just stick with the first one
+                    
         # in the event that it fails, throw a warning; probably because there were objects in there somewhere
         except:
             warn('Type conversion for column ' + iColumns + ' failed.')
