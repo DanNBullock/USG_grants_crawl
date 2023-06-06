@@ -1,6 +1,8 @@
-def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect,caseSensitive=False):
+def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect):
     """
     Applies a regex search to the list of inputTexts and a dictionary wherein the keys are a tuple of the string phrase and the file name and the values are booleans indicating whether the string phrase was found in the file.
+
+    NOTE: case sensitive is depricated.
 
     Parameters
     ----------
@@ -10,8 +12,6 @@ def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect,caseSensit
         A list of strings corresponding to the phrases one is interested in assessing the occurrences of.
     fieldsSelect : list of strings
         A list of strings corresponding to the nested sequence of fields to be searched.  First field is the root tag.  Last field is the field to be searched.  Will throw an error if not specified correctly.
-    caseSensitive : bool, optional
-        A boolean indicating whether the search should be case sensitive. The default is False.
 
     Returns
     -------
@@ -36,11 +36,12 @@ def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect,caseSensit
         # temporary debut print statement
         print('Searching for the string phrase: '+iStringPhrase)
         # get the list of files in the directory
-        fileList=os.listdir(directoryPath)
+        # no we already got that, so we don't need to keep redoing that
+        # fileList=os.listdir(directoryPath)
         # iterate across the files
         for iFile in fileList:
             # apply the regex search to the file and place it in the appropriate tuple dictionary entry
-            tupleDict[(iStringPhrase,iFile)]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect,caseSensitive=caseSensitive)
+            tupleDict[(iStringPhrase,iFile)]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect)
 
     return tupleDict
 
@@ -104,10 +105,12 @@ def convertTupleDictToEfficientDict(tupleDict,rowDescription='',colDescription='
             efficientDict['dataMatrix'][iRow,iCol]=iValue
     return efficientDict
 
-def regexSearchAndSave(directoryPath,stringPhraseList,fieldsSelect,caseSensitive=False,savePath=''):
+def regexSearchAndSave(directoryPath,stringPhraseList,fieldsSelect,savePath=''):
     """
     Applies a regex search to the field specified by the list in fieldsSelect (single field; sequence represents nested fields) to the xml files in the directory specified by directoryPath.
     Saves the results in an efficient, compressed hdf5 file.
+
+    NOTE: case sensitive is depricated.
 
     Parameters
     ----------
@@ -117,9 +120,7 @@ def regexSearchAndSave(directoryPath,stringPhraseList,fieldsSelect,caseSensitive
         A list of strings corresponding to the phrases one is interested in assessing the occurrences of.
     fieldsSelect : list of strings
         A list of strings corresponding to the nested sequence of fields to be searched.  First field is the root tag.  Last field is the field to be searched.  Will throw an error if not specified correctly.
-    caseSensitive : bool, optional
-        A boolean indicating whether the search should be case sensitive. The default is False.
-    savePath : string, optional
+      savePath : string, optional
         A string corresponding to the path to the directory where the results should be saved.  The default is '', which will save the results in the current directory.
     
     Returns 
@@ -135,7 +136,7 @@ def regexSearchAndSave(directoryPath,stringPhraseList,fieldsSelect,caseSensitive
     # TODO: consider implementing inference behavior for the fieldsSelect, using the first xml file in the directory to infer the fieldsSelect.
 
     # apply the regex search to the contents using applyRegexsToDirOfXML
-    tupleDict=applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect,caseSensitive=caseSensitive)
+    tupleDict=applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect)
     # convert the tupleDict to an efficientDict
     efficientDict=convertTupleDictToEfficientDict(tupleDict)
     # try and infer the data source from the first xml file in directoryPath
@@ -216,107 +217,94 @@ def fieldExtractAndSave(inputStructs,targetField,nameField='infer',savePath=''):
     Returns 
     -------
 
-    The output is saved down as an hdf5 file.
+    The output is saved down as a csv.
    
     """
     import os
     import h5py
     import xmltodict
+    import pandas as pd
 
-    # TODO: make this more robust relative to alternative ways of inputting the items to be searched, see tupleDictFromDictFields for example inference behavior.
 
-    # apply the field extraction using tupleDictFromDictFields
-    tupleDict=tupleDictFromDictFields(inputStructs,targetField,nameField=nameField)
-    # convert the tupleDict to an efficientDict
-    efficientDict=convertTupleDictToEfficientDict(tupleDict)
-    # try and infer the data source from the first xml file in directoryPath, and use that to set the metadata for the efficientDict
-    # start by getting the contents of the directory
-    try:
-        # start by determining what the first element of the inputStructs is
-        firstElement=inputStructs[0]
-        if isinstance(firstElement,str):
-        # if it's a file path then test if it's a valid file path
-            if os.path.isfile(firstElement):
-                # if it's a valid file path then test if it's an XML file
-                if firstElement.endswith('.xml'):
-                    # if it's an XML file then read it in as a dictionary
-                    inputType='xmlFile'
-                    # take this opportunity to parse the nameField='infer' logic
-                else:
-                    # if it's not an XML file then raise an error
-                    raise ValueError('The inputStructs variable contains a file-like string with non-"xml" extension that is not a valid file path.')
-            # if it's a string but not a file, check if it's a valid XML string
-            elif firstElement.startswith('<?xml version="1.0" encoding="UTF-8"?>'):
-                inputType='xmlString'
-            # TODO: maybe also consider checking if it's a valid JSON string
-        # if it's not a string then check if it's a dictionary
-        elif isinstance(firstElement,dict):
-            inputType='dict'
-        # if it's not a string or a dictionary then raise an error
-        else:
-            raise ValueError('The inputStructs variable contains an item that is not a valid file path, XML string, or dictionary.')
-        
-        # use detectDataSourceFromSchema on the first element of inputStructs in the appropriate way, given the inputType
+    # start by determining what the first element of the inputStructs is
+    firstElement=inputStructs[0]
+    if isinstance(firstElement,str):
+    # if it's a file path then test if it's a valid file path
+        if os.path.isfile(firstElement):
+            # if it's a valid file path then test if it's an XML file
+            if firstElement.endswith('.xml'):
+                # if it's an XML file then read it in as a dictionary
+                inputType='xmlFile'
+                # load it up and test the source 
+                with open(firstElement) as fd:
+                    firstElementObject=xmltodict.parse(fd.read())
+                fd.close()
+                # get the data source using detectDataSourceFromSchema
+                dataSource=detectDataSourceFromSchema(firstElementObject)
+            else:
+                # if it's not an XML file then raise an error
+                raise ValueError('The inputStructs variable contains a file-like string with non-"xml" extension that is not a valid file path.')
+        # if it's a string but not a file, check if it's a valid XML string
+        elif firstElement.startswith('<?xml version="1.0" encoding="UTF-8"?>'):
+            inputType='xmlString'
+            # load it up and test the source
+            firstElementObject=xmltodict.parse(firstElement)
+            # get the data source using detectDataSourceFromSchema
+            dataSource=detectDataSourceFromSchema(firstElementObject)
+        # TODO: maybe also consider checking if it's a valid JSON string
+    # if it's not a string then check if it's a dictionary
+    elif isinstance(firstElement,dict):
+        inputType='dict'
+        # get the data source using detectDataSourceFromSchema
+        dataSource=detectDataSourceFromSchema(firstElement)
+    # if it's not a string or a dictionary then raise an error
+    else:
+        raise ValueError('The inputStructs variable contains an item that is not a valid file path, XML string, or dictionary.')
+    print('input type '+inputType+' detected')
+    # go ahead and specify name field
+    if dataSource == 'NSF':
+        targetNameField=['rootTag','Award','AwardID']
+    elif dataSource == 'NIH':
+        targetNameField=['rootTag','APPLICATION_ID']
+    elif dataSource == 'grantsGov':
+        targetNameField=['rootTag','OpportunityID']
+
+    # initalize a pandas dataframe with columns for 'itemID' and 'fieldValue' to store the results
+    # ensure that it has N blank rows, where N is the number of inputStructs
+    resultsDF=pd.DataFrame(columns=['itemID','fieldValue'],index=range(len(inputStructs)))
+    
+    # loop through the inputStructs and extract the target field
+    for iIndex,iStruct in enumerate(inputStructs):
+        # load it up as appropriate, given the inputType
         if inputType=='xmlFile':
-            firstXMLFile=firstElement
-            # load the object
-            with open(firstXMLFile) as fd:
-                firstXMLObject=xmltodict.parse(fd.read())
-                #close the file
+            with open(iStruct) as fd:
+                iStructObject=xmltodict.parse(fd.read())
             fd.close()
         elif inputType=='xmlString':
-            firstXMLObject=xmltodict.parse(firstElement)
+            iStructObject=xmltodict.parse(iStruct)
         elif inputType=='dict':
-            firstXMLObject=firstElement
+            iStructObject=iStruct
+        # extract the target field
+        targetValue=extractValueFromDictField(iStructObject,targetField)
+        # extract the name field
+        if nameField=='infer':
+            nameValue=extractValueFromDictField(iStructObject,targetNameField)
         else:
-            raise ValueError('The inputStructs variable contains an item that is not a valid file path, XML string, or dictionary.')   
-        # get the data source using detectDataSourceFromSchema
-        dataSource=detectDataSourceFromSchema(firstXMLObject)
-        # use this metadata to set the metadata for the efficientDict
-        if dataSource=='NSF':
-            efficientDict['rowDescription']='NSF content for ' + targetField[-1]
-            efficientDict['colDescription']='NSF Award Number'
-        elif dataSource=='NIH':
-            # throw not implemented error
-            raise NotImplementedError('NIH not yet implemented')
-        elif dataSource=='grantsGov':
-            efficientDict['rowDescription']='Grants.Gov content for ' + targetField[-1]
-            efficientDict['colDescription']='Grants.Gov Opportunity ID'
-        else:
-            efficientDict['rowDescription']=dataSource + ' content for ' + targetField[-1]
-            efficientDict['colDescription']='Presumptive grant identifier'
-    except:
-        # if this fails, just set the metadata to be generic
-        efficientDict['rowDescription']='Data structure content for ' + targetField[-1]
-        efficientDict['colDescription']='Presumptive grant identifier'
-    # set the data and attribute keys for the hdf5 file
-    # apparently rowName and colName are too big to save as attributes, so they have to be saved as datasets
-    dataKeys=['dataMatrix','rowName','colName']
-    attributeKeys=['rowDescription','colDescription']
-
-    # save the efficientDict as an hdf5 file
-    if savePath=='':
-        savePath=os.getcwd()
-    # create the save file name
-        saveFileName=dataSource+'_'+targetField[-1]+'.hdf5'
-        # create the save path
-        savePath=os.path.join(savePath,saveFileName)
-    # otherwise use the provided savePath
-    else:
-        savePath=savePath
-        # but make sure the directory that would contain the file exists
-        if not os.path.exists(os.path.dirname(savePath)):
-            os.makedirs(os.path.dirname(savePath))
-    # save the file
-    with h5py.File(savePath,'w') as f:
-        # iterate across the data keys and save the data
-        for iKey in dataKeys:
-            f.create_dataset(iKey,data=efficientDict[iKey],compression='gzip')
-        # iterate across the attribute keys and save the attributes
-        for iKey in attributeKeys:
-            f.attrs[iKey]=efficientDict[iKey]
-    # close the file
-    f.close()
+            # assume that you're suppoesd to get it from the name of the file, but throw an error if the input isn't a string
+            if isinstance(inputStructs,str):
+                nameValue=os.path.basename(iStruct).split('.')[0]
+            else:    
+                raise ValueError('The nameField variable is not "infer" but the inputStructs variable is not a string and thus the file name is unknown.  No possible way to determine name without "infer" method.')
+        # add the results to the dataframe, but don't use append because it has been depricated
+        resultsDF.loc[iIndex,'itemID']=nameValue
+        resultsDF.loc[iIndex,'fieldValue']=targetValue
+        
+    # save the results
+    # establish the subdirectories if necessary
+    if not os.path.isdir(os.path.dirname(savePath)):
+        os.makedirs(savePath)
+    # save the results
+    resultsDF.to_csv(savePath,index=False)               
     return
 
 
@@ -351,6 +339,7 @@ def tupleDictFromDictFields(inputStructs,targetField,nameField='infer'):
     '''
     import xmltodict
     import os
+    import copy
 
     # first detect what kind of data source we are dealing with by looking at the first item in the inputStructs
     testInput=inputStructs[0]
@@ -366,11 +355,11 @@ def tupleDictFromDictFields(inputStructs,targetField,nameField='infer'):
                 if nameField=='infer':
                     detectedDataSource=detectDataSourceFromSchema(testInput)
                     if detectedDataSource == 'NSF':
-                        nameField='AwardID'
+                        nameField=['rootTag','Award','AwardID']
                     elif detectedDataSource == 'NIH':
-                        nameField='APPLICATION_ID'
+                        nameField=['rootTag','APPLICATION_ID']
                     elif detectedDataSource == 'grantsGov':
-                        nameField='OpportunityID'
+                        nameField=['rootTag','OpportunityID']
                     else:
                         raise ValueError('"infer" option for nameField using detectDataSourceFromSchema function returned unrecognized data source.')
                 # if the nameField option is not set to "infer" then just use the the filenames, but the actual processing of this will be handled later
@@ -395,63 +384,59 @@ def tupleDictFromDictFields(inputStructs,targetField,nameField='infer'):
     tupleDict={}
 
     # TODO consider throwing an error if the wrong combination of inputType and nameField is used
-
-    # now, based upon the inputType, iterate across the inputs and extract the targetField and nameField and store them in a tuple dictionary
-    if inputType=='xmlFile':
-        # xmlFile case can handle either nameField method
-        for iInput in inputStructs:
+    # now iterate across the inputStructs and extract the targetField and nameField and store them in a tuple dictionary
+    for iInput in inputStructs:
+        # handle the input appropriately
+        if inputType=='xmlFile':
             # read in the input as a dictionary
             with open(iInput) as fd:
                 inputDict = xmltodict.parse(fd.read())
             # close the file
             fd.close()
-            # extract the targetField and nameField
-            # iterate across the targetField list to get the nested field
-            for iField in targetField:
-                inputFieldData=inputDict[iField]
-            iTargetField=inputDict[targetField]
-            iNameField=inputDict[nameField]
-            # store the values in the tuple dictionary
-            tupleDict[(iNameField,inputFieldData)]=True
-    elif inputType=='xmlString':
-        # throw an error if the nameField is set to 'fileName'
-        if nameField=='fileName':
-            raise ValueError('The nameField variable cannot be set to "fileName" when the inputStructs variable contains XML strings.')
-        # otherwise iterate across the inputs and extract the targetField and nameField and store them in a tuple dictionary
+        elif inputType=='xmlString':
+            # read in the input as a dictionary
+            inputDict = xmltodict.parse(iInput)
+        elif inputType=='dict':
+            # copy the inputDict to a new variable
+            inputDict=copy.deepcopy(iInput)
         else:
-            for iInput in inputStructs:
-                # read in the input as a dictionary
-                inputDict = xmltodict.parse(iInput)
-                # extract the targetField and nameField
-                # iterate across the targetField list to get the nested field
-                for iField in targetField:
-                    inputFieldData=inputDict[iField]
-                iTargetField=inputDict[targetField]
-                iNameField=inputDict[nameField]
-                # store the values in the tuple dictionary
-                tupleDict[(iNameField,inputFieldData)]=True
-    elif inputType=='dict':
-        # throw an error if the nameField is set to 'fileName'
-        if nameField=='fileName':
-            raise ValueError('The nameField variable cannot be set to "fileName" when the inputStructs variable contains dictionaries.')
-        # otherwise iterate across the inputs and extract the targetField and nameField and store them in a tuple dictionary
-        else:
-            for iInput in inputStructs:
-                # extract the targetField and nameField
-                # iterate across the targetField list to get the nested field
-                for iField in targetField:
-                    inputFieldData=inputDict[iField]
-                iTargetField=inputDict[targetField]
-                iNameField=inputDict[nameField]
-                # store the values in the tuple dictionary
-                tupleDict[(iNameField,inputFieldData)]=True
-    else:
-        raise ValueError('The inputStructs variable contains an item that has not been detected as a valid file path, XML string, or dictionary.')
+            raise ValueError('The inputStructs variable contains an item that is not a valid file path, XML string, or dictionary.')
+        # extract the targetField and nameField
+        iTargetField= extractValueFromDictField(inputDict,targetField)
+        # TODO:  there is currently no handling for case 'fileName'
+        iNameField=extractValueFromDictField(inputDict,nameField)
+        tupleDict[(iTargetField,iNameField,)]=True
 
     # return the tuple dictionary
-    return tupleDict   
+    return tupleDict
 
-    
+def extractValueFromDictField(inputDict,fieldList):
+    """
+    This function extracts the value from a nested dictionary field.
+
+    Parameters
+    ----------
+    inputDict : dictionary
+        A dictionary containing the nested field to be extracted.
+    fieldList : list of strings
+        A list of strings corresponding to the nested fields to be extracted.
+        
+    Returns
+    -------
+    fieldValue : string
+        A string corresponding to the value of the nested field.   
+    """
+    # iterate across the fieldList to get the nested field
+    for iField in fieldList:
+        try:
+            inputDict=inputDict[iField]
+        except:
+            # throw an error indicating which file failed
+            raise ValueError('Field ' + str(iField) + ' not found in dictionary ' + str(inputDict) + '.') 
+    # extract the targetField
+    fieldValue=inputDict
+    # return the targetField
+    return fieldValue
 
 def searchInputListsForKeywords(inputLists,keywordList):
     """
@@ -533,9 +518,11 @@ def searchInputListsForKeywords(inputLists,keywordList):
                 pass
     return grantFindsOut
 
-def applyRegexToInput(inputText,stringPhrase,caseSensitive=False):
+def applyRegexToInput(inputText,stringPhrase):
     """
     Applies a regex search to the inputText and returns a boolean indicating whether the stringPhrase was found.
+
+    NOTE: case sensitive is depricated.
 
     Parameters
     ----------
@@ -543,8 +530,6 @@ def applyRegexToInput(inputText,stringPhrase,caseSensitive=False):
         A string to be assessed for the presence of the stringPhrase.
     stringPhrase : string
         A string corresponding to the phrase one is interested in assessing the occurrences of. 
-    caseSensitive : bool, optional
-        A boolean indicating whether the search should be case sensitive. The default is False.
 
     Returns
     -------
@@ -553,22 +538,21 @@ def applyRegexToInput(inputText,stringPhrase,caseSensitive=False):
     """
     import re
 
-    if caseSensitive:
-        compiledSearch=re.compile(stringPhrase)
-    else:
-        compiledSearch=re.compile(stringPhrase.lower())
+    compiledSearch=re.compile(stringPhrase)
     try:
-        if bool(compiledSearch.search(inputText.lower())):
+        if bool(compiledSearch.search(inputText)):
             return True
         else:
             return False
     except:
         return False
 
-def applyRegexToXMLFile(xmlFilePath,stringPhrase,fieldsSelect,caseSensitive=False):
+def applyRegexToXMLFile(xmlFilePath,stringPhrase,fieldsSelect):
     """
     Applies a regex search to the inputText and returns a boolean indicating whether the stringPhrase was found.
     
+    NOTE: case sensitive is depricated.
+
     Parameters
     ----------
     xmlFilePath : string
@@ -577,9 +561,7 @@ def applyRegexToXMLFile(xmlFilePath,stringPhrase,fieldsSelect,caseSensitive=Fals
         A string corresponding to the phrase one is interested in assessing the occurrences of.
     fieldsSelect : list of strings
         A list of strings corresponding to the nested sequence of fields to be searched.  First field is the root tag.  Last field is the field to be searched.  Will throw an error if not specified correctly.
-    caseSensitive : bool, optional
-        A boolean indicating whether the search should be case sensitive. The default is False.
-    
+
     Returns
     -------
     bool
@@ -587,11 +569,6 @@ def applyRegexToXMLFile(xmlFilePath,stringPhrase,fieldsSelect,caseSensitive=Fals
     """
     import xmltodict
     import re
-    # this is laready done in the function
-    # if caseSensitive:
-    #    compiledSearch=re.compile(stringPhrase)
-    #else:
-    #   compiledSearch=re.compile(stringPhrase.lower())
     # if the xmlFilePath is a string, then assume it's the file path and load the file
     if type(xmlFilePath)==str:
         with open(xmlFilePath) as f:
@@ -600,25 +577,31 @@ def applyRegexToXMLFile(xmlFilePath,stringPhrase,fieldsSelect,caseSensitive=Fals
         f.close()
     else:
         xmlDict=xmltodict.parse(xmlFilePath)
-    # iterate through the elements of fieldsSelect list to get to the content of the final field
-    for iField in fieldsSelect:
-        xmlDict=xmlDict[iField]
+    # use extractValueFromDictField to extract the relevant field
+    targetRegexText=extractValueFromDictField(xmlDict,fieldsSelect)
+
     # if xmlDict is empty, just go ahead and return False
-    if xmlDict==None:
+    if targetRegexText==None:
+        # print a warning
+        print('WARNING: targetRegexText is None')
         return False
-    # otherwise, check if it has a lenght of greater than 0
-    elif len(xmlDict)>0:
+    # otherwise, check if it's empty
+    # NOTE: for a while this was set up wrong and was triggering on any length greater than zero
+    elif len(targetRegexText)==0:
+        # print a warning
+        print('WARNING: targetRegexText is empty')
         return False
     # otherwise proceed with the search
     
     # now that we have the relevant contet, we need to convert the text to nlp-ready text
     # use prepareTextForNLP(inputText,stopwordsList=None,lemmatizer=None)
-    xmlDict=prepareTextForNLP(xmlDict)
-
+    targetRegexText=prepareTextForNLP(targetRegexText)
+  
     stringPhrase=prepareTextForNLP(stringPhrase)
 
     # use applyRegexToInput
-    outputBool=applyRegexToInput(xmlDict,stringPhrase,caseSensitive=caseSensitive)
+    outputBool=applyRegexToInput(targetRegexText,stringPhrase)
+
     return outputBool
 
 def prepareTextForNLP(inputText,stopwordsList=None,lemmatizer=None):
@@ -722,9 +705,9 @@ def detectDataSourceFromSchema(testDirOrFile):
     #  The minimum number of fields that must match known fields for the corresponding schema in order for it to be considerd a valid mathc
     minFieldThreshold=3
     # A list of fields found in the NSF schema
-    NSFfields=['AwardID','AbstractNarration','AwardTitle','AwardAmount']
+    NSFfields=['AwardID','AbstractNarration','AwardTitle','AwardAmount','NSF_ID','Directorate']
     # A list of fields found in the grants.gov schema
-    grantsGovFields=['OpportunityID','Synopsis','Title','EstimatedTotalProgramFunding']
+    grantsGovFields=['OpportunityID','Synopsis','Title','EstimatedTotalProgramFunding','AgencyCode','Description']
 
     # for a detailed overview of the NSF grant award data schema view:
     # https://github.com/macks22/nsf-award-data/blob/master/docs/nsf-xml-schema-details.md#xml-schema-breakdown
@@ -736,27 +719,32 @@ def detectDataSourceFromSchema(testDirOrFile):
     # the schema itself can be downloaded from here:
     # https://apply07.grants.gov/apply/system/schemas/OpportunityDetail-V1.0.xsd
     # determine if input is file or directory
-    if os.path.isdir(testDirOrFile):
-        # if it's a directory, then simply pick the first xml file in the directory
-        testFile=os.listdir(testDirOrFile)[0]
-        with open(testFile) as f:
-            xmlDict=xmltodict.parse(f.read())
-    # if it's a file, then simply use that file
-    elif os.path.isfile(testDirOrFile):
-        testFile=testDirOrFile
-        with open(testFile) as f:
-            xmlDict=xmltodict.parse(f.read())
-    # if it's a string, but neither of the above, then try and parse it as xml or json
-    elif type(testDirOrFile)==str:
-        try:
-            xmlDict=xmltodict.parse(testDirOrFile)
-        except:
+    # first check if it's a string
+    if type(testDirOrFile)==str:
+        # if it's a string, then check if it's a directory
+        if os.path.isdir(testDirOrFile):
+            # if it's a directory, then simply pick the first xml file in the directory
+            testFile=os.listdir(testDirOrFile)[0]
+            with open(testFile) as f:
+                xmlDict=xmltodict.parse(f.read())
+            f.close()
+        # if it's a file, then simply use that file
+        elif os.path.isfile(testDirOrFile):
+            testFile=testDirOrFile
+            with open(testFile) as f:
+                xmlDict=xmltodict.parse(f.read())
+            f.close()
+        else:
+            # if it's a string, but neither of the above, then try and parse it as xml or json
             try:
-                xmlDict=json.loads(testDirOrFile)
+                xmlDict=xmltodict.parse(testDirOrFile)
             except:
-                print('Error: input is a string but is not a valid file, directory, xml, or json')
-                return None
-    # otherwise if it's a dict, then just use that
+                try:
+                    xmlDict=json.loads(testDirOrFile)
+                except:
+                    print('Error: input is a string but is not a valid file, directory, xml, or json')
+                    return None
+    # if it's a dictionary, then assume it's already been parsed
     elif type(testDirOrFile)==dict:
         xmlDict=testDirOrFile
     # otherwise, return an error
@@ -767,15 +755,18 @@ def detectDataSourceFromSchema(testDirOrFile):
     # hopefully it is validly structured and we don't need to use beautiful soup to fix it
 
     # close the file
-    f.close()
+
     # now check it for the relevant fields
-    # generate a list of all keys in the xmlDict, including nested keys
-    allKeys=[]
-    for key in xmlDict.keys():
-        allKeys.append(key)
-        if type(xmlDict[key])==dict:
-            for subKey in xmlDict[key].keys():
-                allKeys.append(subKey)
+    # recurisvely search the xmlDict for all keys, including exhaustive search of nested dictionaries
+    def getKeys(inputDict):
+        keys=[]
+        for key in inputDict.keys():
+            keys.append(key)
+            if type(inputDict[key])==dict:
+                keys.extend(getKeys(inputDict[key]))
+        return keys
+    allKeys=getKeys(xmlDict)
+
     # now check if the NSF fields are present
     # NOTE: add checks for other data schemas here as additonal data sources are added
     NSFfieldCount=0
