@@ -220,9 +220,9 @@ def getDataFromRemoteSource(destination,sourceOrg):
         elif sourceOrg=='NIH':
             # check for the single file
             # use the file stem to check for the file
-            nihFileStem='NIH_Awards'
+            nihFileStem='RePORTER'
             # first check for xml
-            nihFile=glob(destination + nihFileStem + '*.[xX][mM][lL]')
+            nihFile=glob(destination + nihFileStem + '*.csv')
             # then check for json, and cat the results
             # if the file is found, return True, no need to go and re-download
             if len(nihFile)>0:
@@ -272,10 +272,20 @@ def getDataFromRemoteSource(destination,sourceOrg):
         
         # for the NIH data, download and unzip the single xml
         elif sourceOrg=='NIH':
-            #TODO confirm that this is the case
-            # for now raise a not implemented error
-            raise NotImplementedError('The NIH data source is not yet implemented.  Please check back later.')
-        
+            try:   
+                # use the downloadNIHgrantsData
+                NIHdownloadDir=downloadNIHgrantsData(destination)
+                print('The NIH data has been downloaded to ' + NIHdownloadDir + '.')
+            except:
+                print('The download of the NIH data failed.  Please check the source and try again.')
+                return False
+            # if the download is successful, check that the NIHdownloadDir exists
+            if os.path.isdir(NIHdownloadDir):
+                return NIHdownloadDir
+            else:
+                return False
+            
+            
         elif sourceOrg=='NSF':
             # create this list of files to be downloaded
             nsfDownloadURLS=genNSFdownloadURLs()
@@ -289,6 +299,100 @@ def getDataFromRemoteSource(destination,sourceOrg):
                 return False
 
 # NOTE: here we have the functions for downloading the data from the remote sources
+
+def downloadNIHgrantsData(destination=None):
+    """
+    Downloads the latest XML data structure from https://reporter.nih.gov/services/exporter/, using something like:
+    	https://reporter.nih.gov/services/exporter/DownloadFromDocService?DocType=EXPPRJ&KeyId=2022
+
+    
+    Parameters
+    ----------
+    destination : str
+        A string path corresponding to the *directory* the user would like the NSF data downloaded.
+        Default value is None, resulting in download to current working directory.
+
+    Returns
+    -------
+    dirPath: string
+        The path to the resultant (e.g. downloaded and unzipped) data structure.
+        
+    """
+    import os
+    import zipfile
+    import requests
+    import datetime
+
+    # check and see what the save path has been set to
+    if destination is None:
+        destination=os.getcwd()
+    else:
+        # check if the destination exists
+        if os.path.isdir(destination):
+            pass
+        # if the destination does not exist, create it
+        else:
+            os.mkdir(destination)
+    
+    # get the current year
+    currentYear=datetime.datetime.now().year
+    # earliest year on website is 1985, however the website alleges that records go back to 1970
+    earliestYear=1985
+    # create a vector of the years to download, which would be from the earliest year to the current year
+    yearsToDownload=range(earliestYear,currentYear+1)
+    # there are two different download URLs, one for the project data and one for the abstract data
+    baseDownloadURL_project='https://reporter.nih.gov/services/exporter/DownloadFromDocService?DocType=EXPPRJ&KeyId='
+    baseDownloadURL_abstract='https://reporter.nih.gov/services/exporter/DownloadFromDocService?DocType=EXPABS&KeyId='
+    # create a list of the download URLs
+    downloadURLs_projects=[baseDownloadURL_project + str(year) for year in yearsToDownload]
+    downloadURLs_abstracts=[baseDownloadURL_abstract + str(year) for year in yearsToDownload]
+    
+    # use requests to download the files
+    # begin by iterating across the downloadURLs for projects
+    for downloadURL in downloadURLs_projects:
+        # create a save path for the file
+        savePath=destination + '/' + downloadURL.split('=')[-1] + '_project.zip'
+        # check if the file already exists
+        if os.path.isfile(savePath):
+            pass
+        # if the file does not exist, download it
+        else:
+            # use requests to get the file
+            r = requests.get(downloadURL, stream=True)
+            with open(savePath, 'wb') as fd:
+                for chunk in r.iter_content(chunk_size=128):
+                    fd.write(chunk)
+            # unzip the file
+            # this should add some time between requests, which may prevent the server from blocking the requests
+            with zipfile.ZipFile(savePath, 'r') as zip_ref:
+                zip_ref.extractall(destination)
+    # now iterate across the downloadURLs for abstracts
+    for downloadURL in downloadURLs_abstracts:
+        # create a save path for the file
+        savePath=destination + '/' + downloadURL.split('=')[-1] + '_abstract.zip'
+        # check if the file already exists
+        if os.path.isfile(savePath):
+            pass
+        # if the file does not exist, download it
+        else:
+            # use requests to get the file
+            r = requests.get(downloadURL, stream=True)
+            with open(savePath, 'wb') as fd:
+                for chunk in r.iter_content(chunk_size=128):
+                    fd.write(chunk)
+            # unzip the file
+            # this should add some time between requests, which may prevent the server from blocking the requests
+            with zipfile.ZipFile(savePath, 'r') as zip_ref:
+                zip_ref.extractall(destination)
+
+    # return the path to the directory
+    return destination
+
+
+
+
+    
+
 
 def downloadGrantsGovGrantsData(savePathDir=None):
     """
