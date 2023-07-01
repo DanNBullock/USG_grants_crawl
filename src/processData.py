@@ -1,5 +1,5 @@
 # now that we have handled downloading, we need to process and curate the data
-def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
+def processDownloadedData(dataLocation,sourceOrg,saveDir,singleMulti='multi'):
     """
     This function processes downloaded data from any of the supported sources and saves down the proceessed resultant
     in a "processed" subdirectory of the source data directory.  The singleMulti flag determines whether the data are
@@ -10,6 +10,8 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
             A string corresponding to the path to the downloaded data.
         sourceOrg: string
             A string corresponding to the source organization of the data.  Currently supported are 'NSF' and 'Grants.gov'.
+        saveDir: string
+            A string corresponding to the path to the directory where the processed data should be saved.
         singleMulti: string
             A string corresponding to whether the data should be stored as a single file or as multiple files.  Currently
             supported are 'single' and 'multi'.
@@ -23,7 +25,7 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
 
     # establish a vector with the currently accepted sources
     # currently no support for NIH
-    acceptedSources=['NSF','grantsGov']
+    acceptedSources=['NSF','grantsGov','NIH']
 
     # check if the source is in the accepted sources
     if sourceOrg not in acceptedSources:
@@ -44,8 +46,8 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
             # use glob to find all of the xml files
             xmlFiles=glob(dataLocation+os.sep+'*.xml')
             # create a "processed" subdirectory if it doesn't exist
-            if not os.path.exists(dataLocation+os.sep+'processed'):
-                os.makedirs(dataLocation+os.sep+'processed')
+            if not os.path.exists(saveDir):
+                os.makedirs(saveDir)
             # iterate across the xml files
             for iFiles in xmlFiles:
                 # use attemptXMLrepair to attempt to repair the xml file if necessary
@@ -61,22 +63,25 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
                 # get the file name
                 fileName=iFiles.split(os.sep)[-1]
                 # get the save path
-                savePath=dataLocation+os.sep+'processed'+os.sep+fileName
+                savePath=saveDir+os.sep+fileName
                 # save it down
                 with open(savePath, 'w') as fd:
                     fd.write(xmltodict.unparse(fixedRecord, pretty=True))
                 # close the file
                 fd.close()
             # NOTE: thus the NSF data have been processed and saved down to the "processed" subdirectory of the dataLocation
-            print('NSF data have been processed and saved down to ' + dataLocation+os.sep+'processed')
-            
+            print('NSF data have been processed and saved down to ' + saveDir)
+        # if the source is NIH
+        elif sourceOrg=='NIH':
+            mergeNIHDataToXML(dataLocation,saveDir)
+
         # if the source is grants.gov
         elif sourceOrg=='grantsGov':
                         
             # determine if the dataLocation is a directory or a specific file
             if os.path.isdir(dataLocation):
                 # establish the processed data directory
-                processedDataDir=dataLocation+os.sep+'processed'
+                processedDataDir=saveDir
                 # use glob to find an xml file with "GrantsDBExtract" in the name
                 grantsGovFilename=glob(dataLocation+os.sep+'*GrantsDBExtract*.xml')[0]
                 # if this file exists, load it with pandas
@@ -93,7 +98,7 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
             elif os.path.isfile(dataLocation):
                 # establish the processed data directory
                 
-                processedDataDir=os.path.dirname(dataLocation)+os.sep+'processed'
+                processedDataDir=saveDir
                 # Load it and parse it with xmltodict
                 with open(dataLocation) as fd:
                     doc = xmltodict.parse(fd.read())
@@ -145,6 +150,120 @@ def processDownloadedData(dataLocation,sourceOrg,singleMulti='multi'):
                     except:
                         raise ValueError('The grants.gov data could not be saved down to '+currSavePath + '\n' + 'The current row content is: ' + str(currentRow) )
         print('grants.gov data have been processed and saved down to ' + processedDataDir)
+    return
+
+def processNIHData(dataLocation,singleMulti='single'):
+    """
+    This function processes NIH data, which come in year-wise csv files, and separate the abstract information from the project information.
+    This process will undo that, by going through the csv files, year wise, opening both the abstract and project CSVs and creating individual records
+    for each individual project.
+    Inputs:
+        dataLocation: string
+            The path to the NIH data.
+        singleMulti: string
+            A flag indicating whether the data should be saved down as a single file, or as multiple files.
+
+    """
+
+
+def mergeNIHDataToXML(dataSourceDir,xmlSaveDir):
+    """
+    This function merges NIH data, by award ID, into individual xml files.  For each
+    data (grant) record, the data must be pulled from an abstract and project file,
+    from the corresponding year.  The abstract files are named 
+    "RePORTER_PRJABS_C_FYxxxx.csv" where xxxx is a year, while the project files are
+    named "RePORTER_PRJ_C_FYxxxx.csv".  The award ID is the first column in both files.
+    Inputs:
+        dataSourceDir: string
+            The directory where the NIH data are stored.
+        xmlSaveDir: string
+            The directory where the xml files should be saved.
+    Outputs:
+        None (saves down xml files)
+    """
+    import os
+    import pandas as pd
+    from glob import glob
+    import xmltodict
+    from bs4 import BeautifulSoup
+    from warnings import warn
+
+    # first make sure the save directory exists, and if not make it
+    if not os.path.exists(xmlSaveDir):
+        os.makedirs(xmlSaveDir)
+
+    # get the list of years
+    # NOTE: this assumes that the years are the only 4 digit numbers in the directory
+
+    # get the list of files in the directory, that have "RePORTER" in the name
+    fileList=glob(dataSourceDir+os.sep+'*RePORTER*')
+    # now split these in to the abstract and project files
+    abstractFileList=[x for x in fileList if 'PRJABS' in x]
+    projectFileList=[x for x in fileList if 'PRJ' in x]
+    # note though that 'PRJ' is a substring of 'PRJABS', so we need to remove the abstract files from the project file list
+    projectFileList=[x for x in projectFileList if x not in abstractFileList]
+
+    # now ensure they are sorted in the same order so that the years match up
+    abstractFileList.sort()
+    projectFileList.sort()
+    # now get the years from the abstract file list
+    years=[int(x.split('FY')[1].split('.')[0]) for x in abstractFileList]
+    # now iterate across the years
+    for iYear in range(len(years)):
+        # get the current abstract file
+        currentAbstractFile=abstractFileList[iYear]
+        # get the current project file
+        currentProjectFile=projectFileList[iYear]
+        # now load up each of these files
+        currentAbstractData=pd.read_csv(currentAbstractFile,encoding = "utf-8")
+        currentProjectData=pd.read_csv(currentProjectFile, encoding = "utf-8")
+        # get the award IDs from the abstract data
+        abstractAwardIDs=currentAbstractData['APPLICATION_ID'].values
+        # we don't need the award IDs from the project data, they're the same, so now we just loop over the IDs
+        for iIDs in range(len(abstractAwardIDs)):
+            # get the current award ID
+            currentAwardID=abstractAwardIDs[iIDs]
+            # get the current abstract data
+            currentSingleAbstractData=currentAbstractData[currentAbstractData['APPLICATION_ID']==currentAwardID]
+            # from this get the abstract text
+            currentAbstractText=currentSingleAbstractData['ABSTRACT_TEXT'].values[0]
+            # get the current project data
+            currentSingleProjectData=currentProjectData[currentProjectData['APPLICATION_ID']==currentAwardID]
+            # here we need to implement some robustness, and check to see if any rows have actually been returned
+            # if not, then we need to throw a warning and skip this award ID
+            if currentSingleProjectData.shape[0]==0:
+                warn('No project data were found for award ID ' + str(currentAwardID) + ' from year ' + str(years[iYear]) + '.\nSkipping this award ID.')
+                # we should also create an error log file, to keep track of these
+                # create the error log file if it doesn't exist
+                # we'll store it as a csv, where the first column is the award ID, and the second column is the error / warning message
+                if not os.path.exists(xmlSaveDir+os.sep+'errorLog.csv'):
+                    with open(xmlSaveDir+os.sep+'errorLog.csv','w') as fd:
+                        fd.write('awardID,errorLog\n')
+                    fd.close()
+                # now append the current award ID and error message to the error log
+                with open(xmlSaveDir+os.sep+'errorLog.csv','a') as fd:
+                    fd.write(str(currentAwardID) + ',' + 'No project data were found for award ID' + str(currentAwardID) + ' from year ' + str(years[iYear])+'\n')
+            else:
+                # otherwise, we can proceed
+            
+                # now we need to convert the currentProjectData to a dictionary
+                currentProjectDataDict=currentSingleProjectData.to_dict(orient='records')
+                # add the abstract text to the dictionary as a new key, all caps is fine, as that is what is also in the project spreadsheet
+                currentProjectDataDict[0]['ABSTRACT_TEXT']=currentAbstractText
+
+
+                # now save this down as an xml file
+                # first make the save path
+                # note that currentAwardID is currently an integer, so we need to convert it to a string
+                currentSavePath=os.path.join(xmlSaveDir,str(currentAwardID)+'.xml')
+                # now save it down
+
+                with open(currentSavePath, 'w') as fd:
+                    # NOTE: kind of arbitrarily having to implement 'rootTag' as the root of the xml structure, a convention borrowed from the NSF format
+                    fd.write(xmltodict.unparse({'rootTag': currentProjectDataDict}, pretty=True))
+                # close the file
+                fd.close()
+        # if it fails throw an warning
     return
 
 def attemptXMLrepair(xmlPath,errorLogPath=None):
@@ -537,7 +656,7 @@ def inferNames_GovGrantsDF(grantsDF):
     reTypeGrantColumns : Iterates through columns and retypes the columns in an intentional fashion.
     repairFunding_GovGrantsDF : Repairs the content of the grantsDF dataframe in accordance with established heuristics.
     """
-    import numpy
+    import numpy as np
     import copy
     import pandas as pd
     # silence!

@@ -47,9 +47,13 @@ def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect,caseSensit
             fileList=os.listdir(directoryPath)
             # iterate across the files
             for iFile in fileList:
-                # apply the regex search to the file and place it in the appropriate tuple dictionary entry
-                outputDict[iStringPhrase][iFile]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect,caseSensitive=caseSensitive)
-
+                try:
+                    # apply the regex search to the file and place it in the appropriate tuple dictionary entry
+                    outputDict[iStringPhrase][iFile]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect,caseSensitive=caseSensitive)
+                except:
+                    # throw an error and specify the file that caused the error
+                    raise ValueError('Error in file: '+iFile)
+                
     return outputDict
 
 def convertTupleDictToEfficientDict(tupleDict,rowDescription='',colDescription=''):

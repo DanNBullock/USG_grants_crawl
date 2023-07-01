@@ -45,6 +45,136 @@ def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect):
 
     return tupleDict
 
+def quantifyDataCompleteness(DForFilePaths):
+    """
+    This is a data quality assesment function which computes the number of empty / null values for each field in a given data set.
+    It returns a pandas dataframe with two columns:  the first column is the field name and the second column is the number of empty / null values for that field.
+    In addition to having a row for each field in the data structure, it also has a row that reflects the total number of records assesed, which is functionally the 
+    maximum potential value for any field (e.g. in the case of a field that is empty for all records).
+
+    Parameters
+    ----------
+    DForFilePaths : either a pandas dataframe or a list of strings
+        Either a pandas dataframe containing the records to be assesed (as rows) or a list of strings corresponding to the paths to the files (in xml or json format, each file treated as individual records) to be assessed.
+
+    Returns
+    -------
+    dataCompletenessDF : pandas dataframe
+        A pandas dataframe with two columns:  the first column is the field name and the second column is the number of empty / null values for that field.
+
+    """
+    import os
+    import pandas as pd
+    import json
+    import xmltodict
+    
+    # first, determine if the input is a pandas dataframe or a list of file paths
+    # we'll handle the pandas dataframe case first because that is the easier case
+    if isinstance(DForFilePaths,pd.DataFrame):
+        # if it's a pandas dataframe, create the output dataframe, which will have two columns:  the first column is the field name and the second column is the number of empty / null values for that field.
+        dataCompletenessDF=pd.DataFrame(columns=['fieldName','numEmpty'])
+        # iterate across the columns in the input dataframe
+        for iCol in DForFilePaths.columns:
+            # determine the number of empty values in the column using the isempty function
+            numEmpty=DForFilePaths[iCol].apply(isempty).sum()
+            # add a row to the output dataframe
+            dataCompletenessDF=dataCompletenessDF.append({'fieldName':iCol,'numEmpty':numEmpty},ignore_index=True)
+        # add a row for the total number of records
+        dataCompletenessDF=dataCompletenessDF.append({'fieldName':'totalNumRecords','numEmpty':DForFilePaths.shape[0]},ignore_index=True)
+
+    # now we'll handle the case where the input is a list of file paths
+    elif isinstance(DForFilePaths,list):
+        # if it's a list of file paths, this could get quite demanding.  We'll approach this by creating an intermediary pandas data frame to hold per-record results.
+        # at the moment we don't know what the fields are, but we do know that there will be a row for each record.
+        boolRecordDF=pd.Dataframe()
+        # HOWEVER, because appending to a dataframe is very slow, we'll just append to a list
+        boolRecordDFsList=[[] for i in range(len(DForFilePaths))]
+        # hopefully the records all have the same fields,
+        # I believe that pandas can gracefully handle the case where the fields are not the same, but I'm not sure
+        # iterate across the files
+        for recordIndex,iFile in enumerate(DForFilePaths)   :
+            # determine the file extension
+            fileExtension=os.path.splitext(iFile)[1]
+            # if the file extension is .xml
+            if fileExtension=='.xml':
+                # load it into a dictionary using the xmltodict library
+                iDict=xmltodict.parse(open(iFile,'r').read())
+                # I'm going to assume that there's a singular root tag, and so whatever that is, we'll get it and convert the full content to a dataframe
+                iDF=pd.DataFrame.from_dict(iDict[list(iDict.keys())[0]])
+            # if the file extension is .json
+            elif fileExtension=='.json':
+                # load it into a dictionary using the json library
+                iDict=json.load(open(iFile,'r'))
+                # convert the full content to a dataframe
+                iDF=pd.DataFrame.from_dict(iDict)
+            # now that we have the content in a dataframe, we can apply the isempty function to each column
+            iDFbool=iDF.apply(isempty)
+            # add the results to the intermediary list
+            boolRecordDFsList[recordIndex]=iDFbool
+        # now that we have the intermediary list, we can concatenate it into a dataframe
+        boolRecordDF=pd.concat(boolRecordDFsList)
+        # now we can iterate across the columns in the dataframe
+        for iCol in boolRecordDF.columns:
+            # determine the number of empty values in the column using the isempty function
+            numEmpty=boolRecordDF[iCol].sum()
+            # add a row to the output dataframe
+            dataCompletenessDF=dataCompletenessDF.append({'fieldName':iCol,'numEmpty':numEmpty},ignore_index=True)
+        # add a row for the total number of records
+        dataCompletenessDF=dataCompletenessDF.append({'fieldName':'totalNumRecords','numEmpty':boolRecordDF.shape[0]},ignore_index=True)
+
+    return dataCompletenessDF
+
+
+
+
+
+
+def isempty(inputContent):
+    '''
+    This function determines whether the input is null, empty, '', zero, or NaN, or equivalent.
+    Is this ugly?  Yes it is. 
+
+    NOTE: Technically this is a duplicate of the same named function in the processData function set,
+    but is included here in order to avoid cross-module dependencies.  At least for now.
+
+    Inputs:
+        inputContent: any
+            Any input content.
+    Outputs:    
+        isEmpty: boolean
+            A boolean indicating whether the input is null, empty, '', zero, or NaN, or equivalent.
+    '''
+    import numpy as np
+    try:
+        # if the input is null, return True
+        if inputContent is None:
+            return True
+        else:
+            raise Exception
+    except:
+        try:
+            # if the input is empty, return True
+            if inputContent=='':
+                return True
+            else:
+                raise Exception
+        except:
+            try:
+                # if the input is zero, return True
+                if inputContent==0:
+                    return True
+                else:
+                    raise Exception
+            except:
+                try:
+                    # if the input is NaN, return True
+                    if np.isnan(inputContent):
+                        return True
+                    else:
+                        raise Exception
+                except:
+                    # otherwise, return False
+                    return False
 
 def convertTupleDictToEfficientDict(tupleDict,rowDescription='',colDescription=''):
     """
@@ -157,8 +287,8 @@ def regexSearchAndSave(directoryPath,stringPhraseList,fieldsSelect,savePath=''):
             efficientDict['rowDescription']='Searched Keywords'
             efficientDict['colDescription']='NSF Award Number'
         elif dataSource=='NIH':
-            # throw not implemented error
-            raise NotImplementedError('NIH not yet implemented')
+            efficientDict['rowDescription']='Searched Keywords'
+            efficientDict['colDescription']='NIH Application Number'
         elif dataSource=='grantsGov':
             efficientDict['rowDescription']='Searched Keywords'
             efficientDict['colDescription']='Grants.Gov Opportunity ID'
@@ -205,7 +335,7 @@ def fieldExtractAndSave(inputStructs,targetField,nameField='infer',savePath=''):
 
     Parameters
     ----------
-    inputStructs : list of dictionaries
+    inputStructs : list of strings, xml strings, or dictionaries
         A list of valid objects (file paths, xml strings, or dictionary objects) to be searched.
     targetField : list of strings
         A list of strings corresponding to the nested sequence of fields to be searched.  First field is the root tag.  Last field is the field to be searched.  Will throw an error if not specified correctly.
@@ -213,11 +343,13 @@ def fieldExtractAndSave(inputStructs,targetField,nameField='infer',savePath=''):
         A string corresponding to the field, presumed to be present in all input structures, to be used as the name for the input structure.  The default is 'infer', which will attempt to infer the name field from the input structures.
     savePath : string, optional
         A string corresponding to the path to the directory where the results should be saved.  The default is '', which will save the results in the current directory.
+        If savePath is set to None, then the results will not be saved.
     
     Returns 
     -------
 
-    The output is saved down as a csv.
+    resultsDF : pandas dataframe
+        A pandas dataframe containing the results of the field extraction.
    
     """
     import os
@@ -287,6 +419,7 @@ def fieldExtractAndSave(inputStructs,targetField,nameField='infer',savePath=''):
         # extract the target field
         targetValue=extractValueFromDictField(iStructObject,targetField)
         # extract the name field
+        # NOTE: come back and clean up this logic later, it is not doing what is intended at the moment.
         if nameField=='infer':
             nameValue=extractValueFromDictField(iStructObject,targetNameField)
         else:
@@ -300,15 +433,99 @@ def fieldExtractAndSave(inputStructs,targetField,nameField='infer',savePath=''):
         resultsDF.loc[iIndex,'fieldValue']=targetValue
         
     # save the results
+    if savePath is not None:
     # establish the subdirectories if necessary
-    if not os.path.isdir(os.path.dirname(savePath)):
-        os.makedirs(savePath)
+        if not os.path.isdir(os.path.dirname(savePath)):
+            os.makedirs(savePath)
+        # save the results
+        resultsDF.to_csv(savePath,index=False)               
+    return resultsDF
+
+def wordCountForField(inputStructs,targetField,nameField='infer',savePath=''):
+    """
+    Using fieldExtractAndSave, this function extracts the (presumably) text content of the target field, for each
+    input structure and then performs a word count on the extracted text.  The results are returned as a pandas dataframe
+    and saved down to the specified savePath if savePath is not None.
+
+    Parameters
+    ----------
+    inputStructs : list of strings, xml strings, or dictionaries
+        A list of valid objects (file paths, xml strings, or dictionary objects) to be searched.
+    targetField : list of strings
+        A list of strings corresponding to the *nested* sequence of fields to be searched.  First field is the root tag.  Last field is
+        the target field.  Intermediate fields are nested tags.
+    nameField : list of strings
+        A list of strings corresponding to the *nested* sequence of fields to be searched.  First field is the root tag.  Last field is
+        the name field.  Intermediate fields are nested tags.  If set to 'infer', then the name field is inferred from the file name.
+    savePath : string
+        The path to which the results should be saved.  If None, then the results are not saved.
+
+    Returns
+    -------
+    resultsDF : pandas dataframe
+        A pandas dataframe with two columns: 'itemID' and 'wordCount'. The 'itemID' column contains the name of the input structure, and the 'wordCount'
+        column contains the word count of the target field for each input structure.
+    """
+    import pandas as pd
+    import re
+    # extract the target field
+    resultsDF=fieldExtractAndSave(inputStructs,targetField,nameField=nameField,savePath=None)
+    # what we should now have is a pandas dataframe with two columns: 'itemID' and 'fieldValue'
+    # the field value should be a string containing the text content of the target field
+    # we'll use a regex method to count the number of words
+    for iIndexes,iRows in resultsDF.iterrows():
+        # get the text content for the current entry
+        currentText=iRows['fieldValue']
+        # if it isn't empty, then perform the word count
+        if not pd.isnull(currentText):
+            # perform the word count
+            # alternatively: len(re.findall(re.compile('\\b[A-Za-z]+\\b'), currentText))
+            resultsDF.loc[iIndexes,'wordCount']=len(re.findall(r'\w+', currentText))
+        # if it is empty, then set the word count to zero
+        else:
+            resultsDF.loc[iIndexes,'wordCount']=0
     # save the results
-    resultsDF.to_csv(savePath,index=False)               
-    return
+    if savePath is not None:
+    # establish the subdirectories if necessary
+        if not os.path.isdir(os.path.dirname(savePath)):
+            os.makedirs(savePath)
+        # save the results
+        resultsDF.to_csv(savePath,index=False)
+    return resultsDF
 
+def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
+    """
+    This function takes in a non-square matrix and computes the co-occurrence matrix, which is a square matrix
+    where each entry is the number of times an item in the row occurs with an item in the column.  The results
+    are returned with respect to either the rows or the columns of the input matrix, depending on the input of 
+    the rowsOrColumns variable.  
 
+    In this way, this analysis only makes sense if you select the smaller of the two dimensions of the input matrix
 
+    Parameters
+    ----------
+    occurenceMatrix : numpy array or pandas dataframe
+        A non-square matrix with the rows corresponding to one set of items and the columns corresponding to another set of items.
+    rowsOrColumns : string
+        Either 'rows' or 'columns', depending on whether you want the co-occurrence matrix to be computed with respect to the rows or the columns of the input matrix.
+    savePath : string
+        The path to which the results should be saved.  If None, then the results are not saved.
+
+    Returns
+    -------
+    coOccurrenceMatrix : numpy array
+        A square matrix with the rows and columns corresponding to the items in the rows or columns of the input matrix, depending on the rowsOrColumns variable.
+        The i and j elements are understood to correspond to the same set of items, such that the i,j element is the number of times the i item occurs with the j item.
+        
+        In the case of a boolean matrix representing keywords along the colums and grants along the rows, a co-occurance matrix for the 
+        columns would indicate how often each keyword occurs with each other keyword.  A co-occurance matrix for the rows would indicate how often each grant occurs
+        with each other grant, which is incoherent as grants do not co-occur with each other.  In the example provided, 
+        a co-occurance matrix for the columns is the only meaningful analysis.
+    
+    """
+    import numpy as np
+    import pandas as pd
+    
 
 def tupleDictFromDictFields(inputStructs,targetField,nameField='infer'):
     '''
@@ -363,6 +580,8 @@ def tupleDictFromDictFields(inputStructs,targetField,nameField='infer'):
                     else:
                         raise ValueError('"infer" option for nameField using detectDataSourceFromSchema function returned unrecognized data source.')
                 # if the nameField option is not set to "infer" then just use the the filenames, but the actual processing of this will be handled later
+                elif not nameField=='' or nameField==None:
+                    nameField=nameField
                 else:
                     nameField='fileName'
 
@@ -708,6 +927,8 @@ def detectDataSourceFromSchema(testDirOrFile):
     NSFfields=['AwardID','AbstractNarration','AwardTitle','AwardAmount','NSF_ID','Directorate']
     # A list of fields found in the grants.gov schema
     grantsGovFields=['OpportunityID','Synopsis','Title','EstimatedTotalProgramFunding','AgencyCode','Description']
+    # a list of fields found in the NIH schema; all caps, because YELLING
+    NIHfields=['APPLICATION_ID', 'ACTIVITY', 'ADMINISTERING_IC', 'APPLICATION_TYPE', 'ARRA_FUNDED', 'AWARD_NOTICE_DATE', 'BUDGET_START', 'BUDGET_END', 'CFDA_CODE', 'CORE_PROJECT_NUM', 'ED_INST_TYPE']
 
     # for a detailed overview of the NSF grant award data schema view:
     # https://github.com/macks22/nsf-award-data/blob/master/docs/nsf-xml-schema-details.md#xml-schema-breakdown
@@ -778,11 +999,20 @@ def detectDataSourceFromSchema(testDirOrFile):
     for grantsGovField in grantsGovFields:
         if grantsGovField in allKeys:
             grantsGovFieldCount+=1
+    # now check if the NIH fields are present
+    NIHfieldCount=0
+    for NIHfield in NIHfields:
+        if NIHfield in allKeys:
+            NIHfieldCount+=1
+
     # now determine which data source is the best match
+    # heaven help you if the sequencing of these matters
     if NSFfieldCount>=minFieldThreshold:
         dataSource='NSF'
     elif grantsGovFieldCount>=minFieldThreshold:
         dataSource='grantsGov'
+    elif NIHfieldCount>=minFieldThreshold:
+        dataSource='NIH'
     else:    
         dataSource=None
     return dataSource
