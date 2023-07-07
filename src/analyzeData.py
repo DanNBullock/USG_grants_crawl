@@ -61,18 +61,23 @@ def quantifyDataCompleteness(DForFilePaths):
     -------
     dataCompletenessDF : pandas dataframe
         A pandas dataframe with two columns:  the first column is the field name and the second column is the number of empty / null values for that field.
+        The last row is the total number of records assessed.
 
     """
     import os
     import pandas as pd
     import json
     import xmltodict
+    import numpy as np
     
+    # go ahead and create the output dataframe, which will have two columns:  the first column is the field name and the second column is the number of empty / null values for that field.
+    dataCompletenessDF=pd.DataFrame(columns=['fieldName','numEmpty'])
+
     # first, determine if the input is a pandas dataframe or a list of file paths
     # we'll handle the pandas dataframe case first because that is the easier case
     if isinstance(DForFilePaths,pd.DataFrame):
         # if it's a pandas dataframe, create the output dataframe, which will have two columns:  the first column is the field name and the second column is the number of empty / null values for that field.
-        dataCompletenessDF=pd.DataFrame(columns=['fieldName','numEmpty'])
+       
         # iterate across the columns in the input dataframe
         for iCol in DForFilePaths.columns:
             # determine the number of empty values in the column using the isempty function
@@ -86,7 +91,7 @@ def quantifyDataCompleteness(DForFilePaths):
     elif isinstance(DForFilePaths,list):
         # if it's a list of file paths, this could get quite demanding.  We'll approach this by creating an intermediary pandas data frame to hold per-record results.
         # at the moment we don't know what the fields are, but we do know that there will be a row for each record.
-        boolRecordDF=pd.Dataframe()
+        boolRecordDF=pd.DataFrame()
         # HOWEVER, because appending to a dataframe is very slow, we'll just append to a list
         boolRecordDFsList=[[] for i in range(len(DForFilePaths))]
         # hopefully the records all have the same fields,
@@ -97,30 +102,73 @@ def quantifyDataCompleteness(DForFilePaths):
             fileExtension=os.path.splitext(iFile)[1]
             # if the file extension is .xml
             if fileExtension=='.xml':
-                # load it into a dictionary using the xmltodict library
-                iDict=xmltodict.parse(open(iFile,'r').read())
-                # I'm going to assume that there's a singular root tag, and so whatever that is, we'll get it and convert the full content to a dataframe
-                iDF=pd.DataFrame.from_dict(iDict[list(iDict.keys())[0]])
+                # debug try implementation
+                try:
+                    # load it into a dictionary using the xmltodict library
+                    iDict=xmltodict.parse(open(iFile,'r').read())
+                    # I'm going to assume that there's a singular root tag, and so whatever that is, we'll get it and convert the full content to a dataframe
+                    # get the root tag
+                    rootTag=list(iDict.keys())[0]
+                    # extract content to a separate dictionary (is this necessary?)
+                    extractedDictionary=iDict[rootTag]
+                    # pandas is having some trouble with converting the dictionary to a pandas file, potentially due to nesting.  As a work around we'll iterate through the dictionary keys and create a boolean vector, which we will then use to create a pandas dataframe
+                    # create an empty array to hold the boolean values
+                    boolArray=np.zeros(len(extractedDictionary.keys()),dtype=bool)
+                    # iterate across the keys
+                    for iKeyIndex,iKey in enumerate(extractedDictionary.keys()):
+                        # determine if the value is empty
+                        boolArray[iKeyIndex]=isempty(extractedDictionary[iKey])
+                    # use the boolArray and the keys to create a pandas dataframe, the keys should serve as the columns
+                    # initially suggested, not sure what to make of the reshape
+                    #iDFbool=pd.DataFrame(boolArray.reshape(1,-1),columns=list(extractedDictionary.keys()))
+                    iDFbool=pd.DataFrame(boolArray.reshape(1,-1),columns=list(extractedDictionary.keys()))
+                    
+                except:
+                    # raise an error
+                    raise ValueError('The file '+iFile+' could not be parsed by the xmltodict library. \n rootTag: '+rootTag+'\n iDict: '+str(iDict) + '\n extractedDictionary.keys(): '+str(extractedDictionary.keys()))
+                #iDF=pd.DataFrame.from_dict(iDict[list(iDict.keys())[0]])
             # if the file extension is .json
             elif fileExtension=='.json':
-                # load it into a dictionary using the json library
-                iDict=json.load(open(iFile,'r'))
-                # convert the full content to a dataframe
-                iDF=pd.DataFrame.from_dict(iDict)
+                # debug try implementation
+                try:
+                    # load it into a dictionary using the json library
+                    iDict=json.load(open(iFile,'r'))
+                    # convert the full content to a dataframe
+                    iDF=pd.DataFrame.from_dict(iDict)
+                    # apply the isempty function to each column
+                    iDFbool=iDF.apply(isempty)
+                except:
+                    # raise an error
+                    raise ValueError('The file '+iFile+' could not be parsed by the json library. \n iDict: '+str(iDict) + '\n iDict.keys(): '+str(iDict.keys()))
             # now that we have the content in a dataframe, we can apply the isempty function to each column
-            iDFbool=iDF.apply(isempty)
-            # add the results to the intermediary list
+
             boolRecordDFsList[recordIndex]=iDFbool
         # now that we have the intermediary list, we can concatenate it into a dataframe
         boolRecordDF=pd.concat(boolRecordDFsList)
         # now we can iterate across the columns in the dataframe
-        for iCol in boolRecordDF.columns:
+        # create a holder for the number of empty values in each column
+        numEmptyVec=np.zeros(boolRecordDF.shape[1])
+        for iIndex,iCol in enumerate(boolRecordDF.columns):
             # determine the number of empty values in the column using the isempty function
             numEmpty=boolRecordDF[iCol].sum()
-            # add a row to the output dataframe
-            dataCompletenessDF=dataCompletenessDF.append({'fieldName':iCol,'numEmpty':numEmpty},ignore_index=True)
+            # add that to the relevant position in the numEmptyVec
+            numEmptyVec[iIndex]=numEmpty
+            #dataCompletenessDF=dataCompletenessDF.append({'fieldName':iCol,'numEmpty':numEmpty},ignore_index=True)
         # add a row for the total number of records
-        dataCompletenessDF=dataCompletenessDF.append({'fieldName':'totalNumRecords','numEmpty':boolRecordDF.shape[0]},ignore_index=True)
+        recordTotal=boolRecordDF.shape[0]
+        # add the total number of records to the numEmptyVec
+        numEmptyVec=np.append(numEmptyVec,recordTotal)
+        
+        # create a vecotr for the column names
+        colNamesVec=np.array(boolRecordDF.columns)
+        # add 'totalNumRecords' to the colNamesVec
+        colNamesVec=np.append(colNamesVec,'totalNumRecords')
+
+        # create a dataframe from the numEmptyVec and colNamesVec
+        dataCompletenessDF=pd.DataFrame({'fieldName':colNamesVec,'numEmpty':numEmptyVec})
+
+        # this should avoid warnings about setting values on a copy of a slice from a dataframe and using append
+
 
     return dataCompletenessDF
 
@@ -420,7 +468,7 @@ def fieldExtractAndSave(inputStructs,targetField,nameField='infer',savePath=''):
         targetValue=extractValueFromDictField(iStructObject,targetField)
         # extract the name field
         # NOTE: come back and clean up this logic later, it is not doing what is intended at the moment.
-        if nameField=='infer':
+        if not nameField=='infer':
             nameValue=extractValueFromDictField(iStructObject,targetNameField)
         else:
             # assume that you're suppoesd to get it from the name of the file, but throw an error if the input isn't a string
@@ -468,6 +516,7 @@ def wordCountForField(inputStructs,targetField,nameField='infer',savePath=''):
     """
     import pandas as pd
     import re
+    import os
     # extract the target field
     resultsDF=fieldExtractAndSave(inputStructs,targetField,nameField=nameField,savePath=None)
     # what we should now have is a pandas dataframe with two columns: 'itemID' and 'fieldValue'
@@ -525,7 +574,154 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
     """
     import numpy as np
     import pandas as pd
+
+    # if the input is a pandas dataframe, then convert it to a numpy array
+    if isinstance(occurenceMatrix,pd.DataFrame):
+        occurenceMatrix=occurenceMatrix.values
+    # if the input is a numpy array, then proceed
+    elif isinstance(occurenceMatrix,np.ndarray):
+        pass
+    # if the input is neither a pandas dataframe nor a numpy array, then raise an error
+    else:
+        raise ValueError('The input must be a pandas dataframe or a numpy array')
+    # parse the case logic for rows or columns
+    if rowsOrColumns=='rows':
+        # compute the co-occurrence matrix
+        coOccurrenceMatrix=np.dot(occurenceMatrix.T,occurenceMatrix)
+        # get the row names
+        rowNames=occurenceMatrix.index
+        # get the column names
+        columnNames=occurenceMatrix.index
+    elif rowsOrColumns=='columns':
+        # compute the co-occurrence matrix
+        coOccurrenceMatrix=np.dot(occurenceMatrix,occurenceMatrix.T)
+        # get the row names
+        rowNames=occurenceMatrix.columns
+        # get the column names
+        columnNames=occurenceMatrix.columns
+    # if the rowsOrColumns variable is not set to 'rows' or 'columns', then raise an error
+    else:
+        raise ValueError('The rowsOrColumns variable must be set to either "rows" or "columns"')
+    # return the results
+    return coOccurrenceMatrix
+
+def subsetHD5DataByKeyfile(hd5FilePathOrObject,keyFilePathOrObject,saveFilePath=None,saveFileName=None):
+    """
+    This function uses a keyfile to select a subset of the records in an HD5 file, and then optionally saves that subset to a new HD5 file, if save path information is provided.
+    Returns the subset of data.  
+
+    Parameters
+    ----------
+    hd5FilePathOrObject : string or h5py object
+        The path to the HD5 file, or the HD5 file object itself.  The HD5 file is presumed to be of the standard format produced within this toolset,
+        which means that the structure has the following data keys:
+
+        - dataMatrix : numpy array
+            The data matrix, with rows corresponding to the items and columns corresponding to the attributes.
+        - rowName : list of strings
+            The names or IDs of the items.
+        - colName : list of strings
+            The names or IDs of the attributes.
+
+        And the following attribute keys:
+        - rowDescription : string
+            A description and / or context associated with the row entries.
+        - colDescription : string
+            A description and / or context associated with the column entries.
+
+    keyFilePathOrObject : string or pandas dataframe
+        The path to the keyfile, or the keyfile object itself.  The keyfile is presumed to be a pandas dataframe with two columns.
+        The first column contains the relevant IDs or names, and the second column contains a boolean variable indicating whether the
+        corresponding entry should be included in the subset.
+
+    NOTE:  In order to determine which axis the keyfile corresponds to, this function will check for a match between the IDs in the keyfile, and the rowNames and colNames in the HD5 file.
+    If a match cannot be found, then an error will be raised.
+
+    saveFilePath : string
+        The directory path to which the subset of data should be saved.  If None, then the subset of data is not saved.
+    saveFileName : string
+        The name of the file to which the subset of data should be saved.  If None, then the subset of data is not saved.
+
+    Returns
+    -------
+    subsetData : pandas dataframe
+        The subset of data, with the same structure as the input HD5 file.    
+    """
+    import pandas as pd
+    import h5py
+    import numpy as np
+
+    # if the hd5FilePathOrObject is a string, then open the file
+    if isinstance(hd5FilePathOrObject,str):
+        hd5File=h5py.File(hd5FilePathOrObject,'r')
+    # if the hd5FilePathOrObject is an h5py object, then proceed
+    elif isinstance(hd5FilePathOrObject,h5py.File):
+        hd5File=hd5FilePathOrObject
+    # if the hd5FilePathOrObject is neither a string nor an h5py object, then raise an error
+    else:
+        raise ValueError('The hd5FilePathOrObject must be either a string or an appropriately formatted h5py object')
     
+    # if the keyFilePathOrObject is a string, then open the file
+    if isinstance(keyFilePathOrObject,str):
+        keyFile=pd.read_csv(keyFilePathOrObject,header=None)
+    # if the keyFilePathOrObject is a pandas dataframe, then proceed
+    elif isinstance(keyFilePathOrObject,pd.DataFrame):
+        keyFile=keyFilePathOrObject
+    # if the keyFilePathOrObject is neither a string nor a pandas dataframe, then raise an error
+    else:
+        raise ValueError('The keyFilePathOrObject must be either a string or an appropriately formatted pandas dataframe')
+    
+    # get the domain of entries covered in the keyfile, this should be the content of the first column
+    keyFileDomain=keyFile.iloc[:,0].values
+    # get the boolean values indicating whether each entry should be included in the subset, this should be the content of the second column
+    keyFileBoolean=keyFile.iloc[:,1].values
+
+    # get the row names from the HD5 file
+    rowNames=hd5File['rowName'].value
+    # get the column names from the HD5 file
+    colNames=hd5File['colName'].value
+
+    # check if the keyfile domain is a subset of the row names
+    if np.all(np.in1d(keyFileDomain,rowNames)):
+        # if so, then the keyfile corresponds to the rows
+        keyFileAxis='rows'
+    # check if the keyfile domain is a subset of the column names
+    elif np.all(np.in1d(keyFileDomain,colNames)):
+        # if so, then the keyfile corresponds to the columns
+        keyFileAxis='columns'
+    # if the keyfile domain is not a subset of either the row names or the column names, then raise an error
+    else:
+        raise ValueError('The keyfile domain (i.e. the content of the first column of the keyfile) must be a subset of either the row names or the column names of the input HD5 file')
+    
+    # in the case that the keyfile corresponds to the rows, then proceed
+    if keyFileAxis=='rows':
+        # get the indices of the keyfile domain in the row names
+        keyFileIndices=np.where(np.in1d(rowNames,keyFileDomain))[0]
+        # get the subset of row names
+        subsetRowNames=rowNames[keyFileIndices]
+        # get the subset of data
+        subsetData=hd5File['dataMatrix'][keyFileIndices,:]
+        # the colName, colDescription, and rowDescription are the same as the original HD5 file
+        subsetColName=hd5File['colName'].value
+        subsetColDescription=hd5File['colDescription'].value
+        subsetRowDescription=hd5File['rowDescription'].value
+    # in the case that the keyfile corresponds to the columns, then proceed
+    elif keyFileAxis=='columns':
+        # get the indices of the keyfile domain in the column names
+        keyFileIndices=np.where(np.in1d(colNames,keyFileDomain))[0]
+        # get the subset of column names
+        subsetColNames=colNames[keyFileIndices]
+        # get the subset of data
+        subsetData=hd5File['dataMatrix'][:,keyFileIndices]
+        # the rowName, rowDescription, and colDescription are the same as the original HD5 file
+        subsetRowName=hd5File['rowName'].value
+        subsetRowDescription=hd5File['rowDescription'].value
+        subsetColDescription=hd5File['colDescription'].value
+
+    # go ahead and reform the hd5 object that will either be returned or saved
+    
+
+
 
 def tupleDictFromDictFields(inputStructs,targetField,nameField='infer'):
     '''

@@ -73,6 +73,8 @@ def processDownloadedData(dataLocation,sourceOrg,saveDir,singleMulti='multi'):
             print('NSF data have been processed and saved down to ' + saveDir)
         # if the source is NIH
         elif sourceOrg=='NIH':
+            # should be taken care of here
+            # beyond merging the data, there is currently (as of 2023-07-07) no additional processing needed
             mergeNIHDataToXML(dataLocation,saveDir)
 
         # if the source is grants.gov
