@@ -542,6 +542,70 @@ def wordCountForField(inputStructs,targetField,nameField='infer',savePath=''):
         resultsDF.to_csv(savePath,index=False)
     return resultsDF
 
+def countsFromCoOccurrenceMatrix(coOccurrenceMatrix,rowsOrColumns='rows',axisLabels=None,savePath=''):
+    """
+    This function takes in a co-occurrence matrix and returns a pandas dataframe with the counts of the number of times
+    each item *OCCURS IRRESPECTIVE OF COOCURRENCE WITH OTHER ITEMS*. In other words, this function sums the rows or columns
+    (the matrix should be symmetric) and returns the results as a pandas dataframe.
+
+    Parameters
+    ----------
+    coOccurrenceMatrix : numpy array or pandas dataframe
+        A square matrix with the rows and columns corresponding to the same set of items.
+        In the typical case in this package, wherein this is a term co-occurrence matrix, the rows and columns
+        correspond to the instances of co-occurrence of the terms.
+    rowsOrColumns : string
+        Either 'rows' or 'columns', depending on whether you want the counts to be computed with respect to the rows or the columns of the input matrix.
+        Probably doesn't make sense if you target the larger of the two dimensions of the input matrix.
+    axisLabels : list of strings
+        A list of strings corresponding to the labels of the rows or columns of the input matrix.  If None, then the labels are assumed to be integers.
+    savePath : string
+        The path to which the results should be saved
+
+    Returns
+    -------
+    resultsDF : pandas dataframe
+        A pandas dataframe with two columns: 'itemID' and 'count'. The 'itemID' column contains the label of the row or column of the input matrix, and the 'count'
+        column contains the count of the number of times each item occurs in the in the input matrix. 
+    
+    """
+    import pandas as pd
+    import numpy as np
+    import os
+    # if the input is a pandas dataframe, then convert it to a numpy array
+    if isinstance(coOccurrenceMatrix,pd.DataFrame):
+        coOccurrenceMatrix=coOccurrenceMatrix.values
+        # if the axis labels are not specified, then use either the row or column labels of the input matrix
+        if axisLabels is None:
+            if rowsOrColumns=='rows':
+                axisLabels=coOccurrenceMatrix.index
+            elif rowsOrColumns=='columns':
+                axisLabels=coOccurrenceMatrix.columns
+    # if it's a numpy array we don't need to do anything
+    elif isinstance(coOccurrenceMatrix,np.ndarray):
+        # if the axis labels are not specified, then use integers
+        if axisLabels is None:
+            axisLabels=np.arange(coOccurrenceMatrix.shape[0])
+    # if it's not a numpy array or a pandas dataframe, then raise an error
+    else:
+        raise ValueError('Input matrix must be a numpy array or pandas dataframe')
+    # sum the rows or columns of the input matrix (should be equivalent)
+    if rowsOrColumns=='rows':
+        results=np.sum(coOccurrenceMatrix,axis=1)
+    elif rowsOrColumns=='columns':
+        results=np.sum(coOccurrenceMatrix,axis=0)
+    # convert the results to a pandas dataframe
+    resultsDF=pd.DataFrame({'itemID':axisLabels,'count':results})
+    # save the results
+    if savePath is not None:
+    # establish the subdirectories if necessary
+        if not os.path.isdir(os.path.dirname(savePath)):
+            os.makedirs(savePath)
+        # save the results
+        resultsDF.to_csv(savePath,index=False)
+    return resultsDF
+
+
 def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
     """
     This function takes in a non-square matrix and computes the co-occurrence matrix, which is a square matrix

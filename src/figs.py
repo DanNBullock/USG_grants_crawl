@@ -65,7 +65,7 @@ def plotNullValue_barPlot(dataCompletenessDF,figSize=(10,5)):
     # set the y-axis limits
     ax.set_ylim([0,maxVal])
     # set the x axis labels to be rotated 60 degrees
-    ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
+    ax.set_xticklabels(ax.get_xticklabels(),rotation=60)
     # set the title
     ax.set_title('Number of null values per field')
     # set the y axis label
@@ -78,7 +78,7 @@ def plotNullValue_barPlot(dataCompletenessDF,figSize=(10,5)):
         ax.tick_params(axis='x',labelsize=8)
         # also reduce the spacing between separate lines of text in the x axis labels by modifyin the linespacing parameter
         for label in ax.get_xticklabels():
-            label.set_linespacing(0.3)
+            label.set_linespacing(0.5)
 
 
 
@@ -109,7 +109,7 @@ def plotWordCount_histogram(wordCountDF,figSize=(10,5),binSize=3):
     fig,ax = plt.subplots(figsize=figSize)
 
     # plot the data
-    sns.distplot(wordCountDF['wordCount'],bins=np.arange(0,wordCountDF['wordCount'].max()+binSize,binSize),kde=False,ax=ax)
+    sns.histplot(wordCountDF['wordCount'],bins=np.arange(0,wordCountDF['wordCount'].max()+binSize,binSize),kde=False,ax=ax)
     # set the title
     ax.set_title('Word count histogram')
     # set the x axis label
@@ -118,3 +118,62 @@ def plotWordCount_histogram(wordCountDF,figSize=(10,5),binSize=3):
     ax.set_ylabel('Number of entries')
 
     return fig
+
+def keywordCount_barPlot(keywordCountDF,figSize=(10,5),fig=None,ax=None,figSavePath=None):
+    """
+    This function takes in the keywordCount dataframe from analyzeData.countsFromCoOccurrenceMatrix
+    and produces a seaborn bar plot of the number of occurrences of each keyword.
+    The column headers for the keywordCountDF should be:
+
+    (from the docstring for analyzeData.countsFromCoOccurrenceMatrix)
+    'itemID' and 'count'. The 'itemID' column contains the label of the row or column of the input matrix, and the 'count'
+        column contains the count of the number of times each item occurs in the in the input matrix. 
+    
+    Input:
+        keywordCountDF : pandas dataframe
+            A pandas dataframe with two columns: 'itemID' and 'count'. The 'itemID' column contains the label of the row or column of the input matrix, and the 'count'
+            column contains the count of the number of times each item occurs in the in the input matrix. 
+        figSize : tuple
+            A tuple of two integers, the first being the width of the figure and the second being the height of the figure.'
+        fig : matplotlib figure object
+            A figure object to plot the bar plot on.  If None, a new figure will be created.
+        ax : matplotlib axis object
+            An axis object to plot the bar plot on.  If None, a new axis will be created.
+        figSavePath : string
+            A string containing the path to save the figure to.  If None, the figure will not be saved.
+
+    Output:
+        fig : matplotlib figure object
+            A figure object containing the bar plot of the number of occurrences of each keyword.
+        ax : matplotlib axis object
+            An axis object containing the bar plot of the number of occurrences of each keyword.
+    """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+    import pandas as pd
+
+    # create a figure if one was not provided
+    if fig is None:
+        fig,ax = plt.subplots(figsize=figSize)
+
+    # plot the data
+    sns.barplot(x='itemID',y='count',data=keywordCountDF,ax=ax)
+    # set the x axis labels to be rotated 60 degrees
+    ax.set_xticklabels(ax.get_xticklabels(),rotation=60)
+    # set the title
+    ax.set_title('Keyword counts')
+    # set the y axis label
+    ax.set_ylabel('Number of occurrences')
+    # set the x axis label
+    ax.set_xlabel('Keyword')
+
+    # there shouldn't be any exceptionally long keywords, nor any multi line keywords, so no need to do any special formatting here
+
+    # save the figure if a save path was provided
+    if figSavePath is not None:
+        fig.savefig(figSavePath,bbox_inches='tight')
+        
+
+    return fig,ax
+
