@@ -177,3 +177,62 @@ def keywordCount_barPlot(keywordCountDF,figSize=(10,5),fig=None,ax=None,figSaveP
 
     return fig,ax
 
+def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=(6.5,5),fig=None,ax=None,colorMap='viridis',figSavePath=None):
+    """
+    This function takes in a matrix-like pandas dataframe and generates a heat map plot of the data.
+
+    Inputs:
+        matrixDF : pandas dataframe
+            A pandas dataframe containing the matrix data to plot.  The index and column names will be used as the row and column labels, so make sure they are set appropriately.
+        rowTitle : string
+            A string containing the title for the vertical axis of the matrix / plot.  If None or '' then no axis label will be applied.
+        colTitle : string
+            A string containing the title for the horizontal axis of the matrix / plot.  If None or '' then no axis label will be applied.
+        figSize : tuple
+            A tuple of two integers, the first being the width of the figure and the second being the height of the figure.'
+        fig : matplotlib figure object
+            A figure object to plot the bar plot on.  If None, a new figure will be created.
+        ax : matplotlib axis object
+            An axis object to plot the bar plot on.  If None, a new axis will be created.
+        colorMap : string
+            A string containing the name of the color map to use for the heat map.  See https://matplotlib.org/stable/tutorials/colors/colormaps.html for a list of available color maps.
+        figSavePath : string
+            A string containing the path to save the figure to.  If None, the figure will not be saved.
+            
+    Outputs:
+        fig : matplotlib figure object
+            A figure object containing the heat map plot of the matrix data.
+        ax : matplotlib axis object
+            An axis object containing the heat map plot of the matrix data.
+
+    """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    # create a figure if one was not provided
+    if fig is None:
+        fig,ax = plt.subplots(figsize=figSize)
+
+    # plot the data
+    sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True)
+    # set the titles
+    ax.set_title('Co-occurrence matrix for ' + rowTitle + ' by ' + colTitle)
+    # set the y axis label
+    ax.set_ylabel(rowTitle)
+    # set the x axis label
+    ax.set_xlabel(colTitle)
+
+    # save the figure if a save path was provided
+    if figSavePath is not None:
+        # if it is '', then save using the default name
+        if figSavePath == '':
+            defaultName='coOccurrenceMatrix_' + rowTitle + '_by_' + colTitle + '.png'
+            figSavePath = defaultName
+        # in any case you should have the figure name by now, so save it
+        fig.savefig(figSavePath,bbox_inches='tight')
+    
+    # return the figure and axis objects
+    return fig,ax 
+
+
+

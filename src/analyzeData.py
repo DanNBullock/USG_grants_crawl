@@ -638,12 +638,19 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
     """
     import numpy as np
     import pandas as pd
+    import h5py
 
     # if the input is a pandas dataframe, then convert it to a numpy array
     if isinstance(occurenceMatrix,pd.DataFrame):
+        currRowNames=occurenceMatrix.index
+        currColNames=occurenceMatrix.columns
         occurenceMatrix=occurenceMatrix.values
     # if the input is a numpy array, then proceed
     elif isinstance(occurenceMatrix,np.ndarray):
+        # if it's not a pandas dataframe, and instead a numpy array, then you're not going to get row and column names
+        # so we have to generate dummy names, which will simply be integers
+        currRowNames=np.arange(occurenceMatrix.shape[0])
+        currColNames=np.arange(occurenceMatrix.shape[1])
         pass
     # if the input is neither a pandas dataframe nor a numpy array, then raise an error
     else:
@@ -652,22 +659,247 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
     if rowsOrColumns=='rows':
         # compute the co-occurrence matrix
         coOccurrenceMatrix=np.dot(occurenceMatrix.T,occurenceMatrix)
-        # get the row names
-        rowNames=occurenceMatrix.index
-        # get the column names
-        columnNames=occurenceMatrix.index
+        # set the row names
+        rowNames=currRowNames
+        # set the column names
+        columnNames=currRowNames
     elif rowsOrColumns=='columns':
         # compute the co-occurrence matrix
         coOccurrenceMatrix=np.dot(occurenceMatrix,occurenceMatrix.T)
-        # get the row names
-        rowNames=occurenceMatrix.columns
-        # get the column names
-        columnNames=occurenceMatrix.columns
+        # set the row names
+        rowNames=currColNames
+        # set the column names
+        columnNames=currColNames
     # if the rowsOrColumns variable is not set to 'rows' or 'columns', then raise an error
     else:
         raise ValueError('The rowsOrColumns variable must be set to either "rows" or "columns"')
+    # determine the desired saving behavior
+    if savePath is not None:
+        # in any of the available cases when saving, it will be wortwhile to know whether the 
+        # row / column labels (indexes) are simply sequential integers or not.  If they are sequential integers we can basically ignore them.
+        # run a check to see if they are sequential integers
+        # we'll use a try except here, because we don't know if the input rowNames is simply the output of DataFrame.index (and thus a list of strings, integers, etc.) or if it's a numpy array from np.arange
+        try:
+            # if it's a numpy array, then we can use the np.all function to check if it's sequential
+            if np.all(np.arange(len(rowNames))==[int(x) for x in rowNames]):
+                indexesMeaningful=False
+            else:
+                indexesMeaningful=True
+        except:
+            # if rowNames is made up of of strings, you'll get a `ValueError: invalid literal for int()` error
+            # in this case, we'll just assume that the indexes are meaningful
+            indexesMeaningful=True
+            
+
+        # if it's not none, then check it if is blank (''), or a specific format
+        if savePath=='':
+            # if it's blank, then they haven't provided a desired format, so we have to use a heuristic for this
+            # we'll just set an arbitrary value here, to serve as the heuristic limit
+            # in this case, what the value represents is the number of rows (or columns) that we would consider the maximum reasonable to store in a csv
+            # in essence: if there are sufficiently few values, then it's fine to store the data as an uncompressed csv.
+            # for example, a 1000 by 1000 matrix would be 1,000,000 numeric values which would be 8,000,000 bytes, or 8 MB for float 64 (or 4 MB for float 32)
+            thresholdCSV=1000
+            # also set the string for the default name
+            defaultName='coOccurrenceMatrix'
+            # if the number of rows or columns is less than the threshold, then save as a csv
+            if coOccurrenceMatrix.shape[0]<thresholdCSV:
+                # if the indexes are meaningful, then save the row and column names as well
+                if indexesMeaningful:
+                    # save the co-occurrence matrix as a csv
+                    coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=rowNames,columns=columnNames)
+                    coOccurrenceMatrixDF.to_csv(defaultName+'.csv')
+                else:
+                    # save the co-occurrence matrix as a csv
+                    coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=None,columns=None)
+                    coOccurrenceMatrixDF.to_csv(defaultName+'.csv')
+            # if the number of rows or columns is greater than the threshold, then save as an hdf5
+            else:
+                # if the indexes are meaningful, then save the row and column names as well
+                if indexesMeaningful:
+                    # save the co-occurrence matrix as an hdf5
+                    with h5py.File(defaultName+'.hdf5','w') as f:
+                        f.create_dataset('dataMatrix',data=coOccurrenceMatrix,compression='gzip')
+                        f.create_dataset('rowName',data=rowNames,compression='gzip')
+                        f.create_dataset('colName',data=columnNames,compression='gzip')
+                else:
+                    # save the co-occurrence matrix as an hdf5
+                    with h5py.File(defaultName+'.hdf5','w') as f:
+                        f.create_dataset('dataMatrix',data=coOccurrenceMatrix,compression='gzip')
+                # in either case, close the file
+                f.close()
+        # if it's not blank, then check if it's a csv or an hdf5
+        elif savePath.endswith('.csv'):
+            # if it's a csv, then save the co-occurrence matrix as a csv essentially the same way as above
+            if indexesMeaningful:
+                # save the co-occurrence matrix as a csv
+                coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=rowNames,columns=columnNames)
+                coOccurrenceMatrixDF.to_csv(savePath)
+            else:
+                # save the co-occurrence matrix as a csv
+                coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=None,columns=None)
+                coOccurrenceMatrixDF.to_csv(savePath)
+        elif savePath.endswith('.hdf5'):
+            # if it's an hdf5, then save the co-occurrence matrix as an hdf5 essentially the same way as above
+            if indexesMeaningful:
+                # save the co-occurrence matrix as an hdf5
+                with h5py.File(savePath,'w') as f:
+                    f.create_dataset('dataMatrix',data=coOccurrenceMatrix,compression='gzip')
+                    f.create_dataset('rowName',data=rowNames,compression='gzip')
+                    f.create_dataset('colName',data=columnNames,compression='gzip')
+            else:
+                # save the co-occurrence matrix as an hdf5
+                with h5py.File(savePath,'w') as f:
+                    f.create_dataset('dataMatrix',data=coOccurrenceMatrix,compression='gzip')
+            # in either case, close the file
+            f.close()
+
+        # if it's not blank, csv, or hdf5, or None then raise an error
+        else:
+            raise ValueError('The savePath variable must be either blank (''), None, or end with ".csv" or ".hdf5"')      
+
     # return the results
     return coOccurrenceMatrix
+
+def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',savePath=''):
+    """
+    This function takes in a matrix and category dictionary (in the form of a two column pandas dataframe) and returns a new matrix
+    where the elements of the specified axis have been condensed into the agglomerations specified by the category dictionary.
+    In this way, the output matrix will retain the same number of opposite axis elements, but will have N number of `targetAxis` elements,
+    where N is the number of unique categories in the category dictionary.
+
+    Parameters
+    ----------
+    matrix : pandas dataframe
+        A matrix of some sort, presumably bool, but potentially numeric.  The column / row indexes should correspond to the 
+        identifiers (first column) in the `categoryKeyFileDF`, and be consistent with the axis requested in the `targetAxis` variable.
+    categoryKeyFileDF : pandas dataframe
+        A two column pandas dataframe where the first column contains the identifiers (presumably `itemID`) 
+        and the second column contains the category labels (presumably `fieldValue`); presumably as in the convention of the output of fieldExtractAndSave.
+    targetAxis : string
+        Either 'rows' or 'columns', depending on whether you want to sum merge the rows or columns of the input matrix.  This is the axis
+        across which the identifiers (from categoryKeyFileDF[`itemID`]) will be searched for.
+    savePath : string
+        The path to which the results should be saved.  If None, then the results are not saved.  If '', then the results are saved to the current directory.
+
+    Returns
+    -------
+    sumMergeMatrix : pandas dataframe
+        A pandas dataframe with summations across the specified axis for each unique category in the category dictionary.  The non-requested axis's 
+        indexes should be preserved, however the requested axis's indexes should be replaced with the unique categories from the category dictionary.
+    
+    NOTE: consider refactoring this in light of the hd5 functionality implemented in subsetHD5DataByKeyfile
+    """
+    import pandas as pd
+    import numpy as np
+    import os
+    import hpy5
+    # check if the input matrix is a pandas dataframe
+    # if it is, then proceed
+    # if it isn't then raise an error explaning why a pandas dataframe is necessary (the column / row indexes need to be matched against the category dictionary))
+    if not isinstance(matrix,pd.DataFrame):
+        raise ValueError('The input matrix must be a pandas dataframe in order to match category indentities from `categoryKeyFileDF` with specific records in the matrix.')
+    
+    # make an attempt to parse the input categoryKeyFileDF.  Start by trying to index into the columns 'itemID' and 'fieldValue'.  If that doesn't work, throw a warning and index into the first two columns, with the first being assumed to be the equivalent of 'itemID' and the second assumed to be the equivalent of 'fieldValue'.
+    try:
+        recordIDs=categoryKeyFileDF['itemID'].values
+        categoryLabels=categoryKeyFileDF['fieldValue'].values
+    except:
+        print('Warning: The input categoryKeyFileDF does not have the expected column names.  Attempting to infer the appropriate columns.  THIS MAY RESULT IN AN ERROR')
+        recordIDs=categoryKeyFileDF.iloc[:,0].values
+        categoryLabels=categoryKeyFileDF.iloc[:,1].values
+    # go ahead and establish the unique categories
+    uniqueCategories=np.unique(categoryLabels)
+
+    # go ahead and use the targetAxis to obtain the appropriate axis labels
+    # TODO: consider updating this to accept integer-based indexing to indicate dimension
+    if targetAxis=='rows':
+        axisLabels=matrix.index
+    elif targetAxis=='columns' or targetAxis=='cols':
+        axisLabels=matrix.columns
+    else:
+        raise ValueError('The targetAxis variable must be set to either "rows" or "columns" \n The targetAxis variable is currently set to: '+targetAxis)
+
+    # initialize a new matrix to store the results, but take in to account targetAxis
+    if targetAxis=='rows':
+        sumMergeMatrix=pd.DataFrame(index=uniqueCategories,columns=axisLabels)
+    elif targetAxis=='columns' or targetAxis=='cols':
+        sumMergeMatrix=pd.DataFrame(index=axisLabels,columns=uniqueCategories)
+
+    # now loop through the unique categories and sum merge the appropriate rows or columns
+    for iCategory in uniqueCategories:
+        # get the indexes of the records that match the current category
+        currentCategoryIndexes=np.where(categoryLabels==iCategory)[0]
+        # use these indexes to subset recordIDs
+        currentCategoryRecordIDs=recordIDs[currentCategoryIndexes]
+        # use these indexes to subset the input matrix, keeping in mind the targetAxis
+        if targetAxis=='rows':
+            currentCategoryMatrix=matrix.loc[currentCategoryRecordIDs,:]
+            # sum merge the current category matrix
+            currentCategoryMatrix=currentCategoryMatrix.sum(axis=0)
+            # add the results to the corresponding location in the sumMergeMatrix
+            sumMergeMatrix.loc[iCategory,:]=currentCategoryMatrix
+        elif targetAxis=='columns' or targetAxis=='cols':
+            currentCategoryMatrix=matrix.loc[:,currentCategoryRecordIDs]
+            # sum merge the current category matrix
+            currentCategoryMatrix=currentCategoryMatrix.sum(axis=1)
+            # add the results to the corresponding location in the sumMergeMatrix
+            sumMergeMatrix.loc[:,iCategory]=currentCategoryMatrix
+    
+    # determine the desired saving behavior, stealing this code from coOccurrenceMatrix
+    if savePath is not None:
+        # we don't need to run a check here to determine if the rows and indexes are meaningful
+        # they *have* to be, given the above algorithm
+
+        # if it's not none, then check it if is blank (''), or a specific format
+        if savePath=='':
+            # if it's blank, then they haven't provided a desired format, so we have to use a heuristic for this
+            # we'll just set an arbitrary value here, to serve as the heuristic limit
+            # in this case, what the value represents is the number of rows (or columns) that we would consider the maximum reasonable to store in a csv
+            # in essence: if there are sufficiently few values, then it's fine to store the data as an uncompressed csv.
+            # for example, a 1000 by 1000 matrix would be 1,000,000 numeric values which would be 8,000,000 bytes, or 8 MB for float 64 (or 4 MB for float 32)
+            thresholdCSV=1000
+            # also set the string for the default name
+            defaultName='categorySumMergeMatrix'
+            # if the number of rows or columns is less than the threshold, then save as a csv
+            if sumMergeMatrix.shape[0]<thresholdCSV:          
+                # save the sumMergeMatrix matrix as a csv
+                sumMergeMatrix.to_csv(defaultName+'.csv')
+            # if the number of rows or columns is greater than the threshold, then save as an hdf5
+            else:
+                # save the co-occurrence matrix as an hdf5
+                with h5py.File(defaultName+'.hdf5','w') as f:
+                    f.create_dataset('dataMatrix',data=sumMergeMatrix.values,compression='gzip')
+                    f.create_dataset('rowName',data=sumMergeMatrix.index,compression='gzip')
+                    f.create_dataset('colName',data=sumMergeMatrix.columns,compression='gzip')
+                # now close the file
+                f.close()
+        # if it's not blank, then check if it's a csv or an hdf5
+        elif savePath.endswith('.csv'):
+            # if it's a csv, then save the co-occurrence matrix as a csv essentially the same way as above
+            sumMergeMatrix.to_csv(savePath)
+
+        elif savePath.endswith('.hdf5'):
+            # if it's an hdf5, then save the co-occurrence matrix as an hdf5 essentially the same way as above
+            with h5py.File(defaultName+'.hdf5','w') as f:
+                f.create_dataset('dataMatrix',data=sumMergeMatrix.values,compression='gzip')
+                f.create_dataset('rowName',data=sumMergeMatrix.index,compression='gzip')
+                f.create_dataset('colName',data=sumMergeMatrix.columns,compression='gzip')
+                # now close the file
+                f.close()
+        # if it's not blank, csv, or hdf5, or None then raise an error
+        else:
+            raise ValueError('The savePath variable must be either blank (''), None, or end with ".csv" or ".hdf5"')
+
+        # return the results
+    return sumMergeMatrix      
+
+
+
+
+
+    
+    
+
 
 def subsetHD5DataByKeyfile(hd5FilePathOrObject,keyFilePathOrObject,saveFilePath=None,saveFileName=None):
     """
