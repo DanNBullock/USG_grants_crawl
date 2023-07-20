@@ -234,5 +234,91 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=(6.5
     # return the figure and axis objects
     return fig,ax 
 
+def matrix_histogramCounts(inputMatrix,keepAxis='columns',dropZero=True,binSize=1,figSize=(10,5),fig=None,ax=None,figSavePath=None):
+    """
+    This function takes in a matrix (either a pandas dataframe or numpy array) and generates a histogram of the counts obtained from summing across
+    the UNREQUESTED axis (the axis that is not kept) of the matrix.  The counts are then binned and plotted as a histogram.
+    
+    Inputs
+        - inputMatrix : pandas dataframe or numpy array
+            A matrix-like object to generate the histogram from.
+        - keepAxis : string
+            A string containing either 'rows' or 'columns' to indicate which axis to keep when summing across the other axis.
+        - dropZero : boolean
+            A boolean indicating whether to drop the zero counts from the histogram.  This would be to avoid zeros from swamping the visualization.  If True, the zeros will be dropped and not featured in the plot.
+        - binSize : int
+            An integer indicating the size of the bins to use for the histogram.
+        - figSize : tuple
+            A tuple of two integers, the first being the width of the figure and the second being the height of the figure.'
+        - fig : matplotlib figure object
+            A figure object to plot the bar plot on.  If None, a new figure will be created.
+        - ax : matplotlib axis object
+            An axis object to plot the bar plot on.  If None, a new axis will be created.
+        - figSavePath : string 
+            A string containing the path to save the figure to.  If None, the figure will not be saved.
 
+    Outputs
+        - fig : matplotlib figure object
+            A figure object containing the histogram of the counts.
+        - ax : matplotlib axis object
+            An axis object containing the histogram of the counts.
+        - countsDF : pandas dataframe
+            A pandas dataframe containing the counts associated with the input matrix.  The first column is the count value, and the second column is the number of times that count value was observed.
+    
+    """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+    import pandas as pd
 
+    # create a figure if one was not provided
+    if fig is None:
+        fig,ax = plt.subplots(figsize=figSize)
+
+    # sum across the axis that is not kept, but be robust to the input matrix being a numpy array or pandas dataframe
+    if keepAxis == 'rows':
+        # sum across the columns
+        counts = inputMatrix.sum(axis=1)
+    elif keepAxis == 'columns' or keepAxis == 'cols':
+        # sum across the rows
+        counts = inputMatrix.sum(axis=0)
+    else:
+        raise ValueError('keepAxis must be either "rows" or "columns"')
+    
+    # convert the counts to a pandas dataframe
+    countsDF = pd.DataFrame(counts,columns=['count'])
+    # get the number of times each count value was observed
+    countsDF = countsDF['count'].value_counts().reset_index()
+    # rename the columns
+    countsDF.columns = ['count','numObserved']
+    # we will create a temporary dataframe that we will plot from, which takes in to account the `dropZero` parameter
+    # if dropZero is True, then we will drop the zero counts from the dataframe for plotting
+    # if dropZero is False, then we will not drop the zero counts from the dataframe for plotting
+    # regardless, the output dataframe will contain all of the counts
+    if dropZero:
+        # drop the zero counts
+        plotDF = countsDF.loc[countsDF['count'] != 0,:]
+    else:
+        # don't drop the zero counts
+        plotDF = countsDF
+
+    # plot the data
+    sns.histplot(pd.DataFrame(data=counts,columns=['counts']),x='counts',bins=np.arange(0,np.max(counts)+binSize,binSize),kde=False,ax=ax)   
+    # set the title
+    ax.set_title('Histogram of counts')
+    # set the x axis label
+    ax.set_xlabel('Count')
+    # set the y axis label
+    ax.set_ylabel('Number of occurrences')
+
+    # save the figure if a save path was provided
+    if figSavePath is not None:
+        # if it is '', then save using the default name
+        if figSavePath == '':
+            defaultName='matrixHistogram_' + keepAxis + '.png'
+            figSavePath = defaultName
+        # in any case you should have the figure name by now, so save it
+        fig.savefig(figSavePath,bbox_inches='tight')
+
+    # return the figure and axis objects
+    return fig,ax,countsDF

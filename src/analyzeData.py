@@ -41,7 +41,7 @@ def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect):
         # iterate across the files
         for iFile in fileList:
             # apply the regex search to the file and place it in the appropriate tuple dictionary entry
-            tupleDict[(iStringPhrase,iFile)]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect)
+            tupleDict[(iStringPhrase,iFile.replace('.xml',''))]=applyRegexToXMLFile(os.path.join(directoryPath,iFile),iStringPhrase,fieldsSelect)
 
     return tupleDict
 
@@ -621,6 +621,7 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
         A non-square matrix with the rows corresponding to one set of items and the columns corresponding to another set of items.
     rowsOrColumns : string
         Either 'rows' or 'columns', depending on whether you want the co-occurrence matrix to be computed with respect to the rows or the columns of the input matrix.
+        'columns' will analyze co-occurences _within_ the columns of the input matrix, and 'rows' will analyze co-occurences _within_ the rows of the input matrix.
     savePath : string
         The path to which the results should be saved.  If None, then the results are not saved.
 
@@ -631,15 +632,39 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
         The i and j elements are understood to correspond to the same set of items, such that the i,j element is the number of times the i item occurs with the j item.
         
         In the case of a boolean matrix representing keywords along the colums and grants along the rows, a co-occurance matrix for the 
-        columns would indicate how often each keyword occurs with each other keyword.  A co-occurance matrix for the rows would indicate how often each grant occurs
-        with each other grant, which is incoherent as grants do not co-occur with each other.  In the example provided, 
-        a co-occurance matrix for the columns is the only meaningful analysis.
+        columns would indicate how often each keyword occurs with each other keyword.  A co-occurance matrix for the rows would indicate the number
+        of terms shared by each pair of grants.
+        NOTE: keywords are actually the rows.
     
     """
     import numpy as np
     import pandas as pd
     import h5py
 
+    """
+    this doesn't do what was expected / intended.  rowsums= number hits per term across documents, colsums = number of terms per document.
+    Thus if rows are terms and columns are records, the dotproduct of the transpose of the matrix with the matrix will give you the number of times each term co-occurs with each other term.
+    whereas the dotproduct of the matrix with the transpose of the matrix will give you the number of terms shared by each pair of records.
+    
+    # lets go ahead and check what the sum would be across each axis of the input matrix
+ 
+    dimPassCheck=np.zeros(occurenceMatrix.ndim,dtype=bool)
+    for iDims in range(occurenceMatrix.ndim):
+        # get the sum across the current axis
+        currDimSums=np.sum(occurenceMatrix,axis=iDims)
+        # a count of co-occurrences only makes sense of things can co-occur along a given axis, so we'll check to see if there are any summed values of two or greater for each axis
+        # if there are no sums of two or greater along this axis, then this axis isn't a valid choice for performing a co-occurrence analysis.
+        dimPassCheck[iDims]=np.any(currDimSums>=2)
+
+    # use dimPassCheck to determine if the axis requested in rowsOrColumns is valid
+    # remember, requesting "rows" means that the desired output is a square matrix with N rows and columns, where N is the number of rows in the input matrix (and vice versa for "columns")
+    if rowsOrColumns=='rows':
+        if not dimPassCheck[0]:
+            raise ValueError('The rowsOrColumns variable is set to "rows" but there are no rows with two or more values in the input matrix.  Thus, there are no co-occurrences along the specified dimension')
+    elif rowsOrColumns=='columns':
+        if not dimPassCheck[1]:
+            raise ValueError('The rowsOrColumns variable is set to "columns" but there are no columns with two or more values in the input matrix.  Thus, there are no co-occurrences along the specified dimension')
+    """
     # if the input is a pandas dataframe, then convert it to a numpy array
     if isinstance(occurenceMatrix,pd.DataFrame):
         currRowNames=occurenceMatrix.index
@@ -673,6 +698,7 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
     # if the rowsOrColumns variable is not set to 'rows' or 'columns', then raise an error
     else:
         raise ValueError('The rowsOrColumns variable must be set to either "rows" or "columns"')
+    
     # determine the desired saving behavior
     if savePath is not None:
         # in any of the available cases when saving, it will be wortwhile to know whether the 
@@ -689,7 +715,7 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
             # if rowNames is made up of of strings, you'll get a `ValueError: invalid literal for int()` error
             # in this case, we'll just assume that the indexes are meaningful
             indexesMeaningful=True
-            
+
 
         # if it's not none, then check it if is blank (''), or a specific format
         if savePath=='':
@@ -792,7 +818,7 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
     import pandas as pd
     import numpy as np
     import os
-    import hpy5
+    import h5py
     # check if the input matrix is a pandas dataframe
     # if it is, then proceed
     # if it isn't then raise an error explaning why a pandas dataframe is necessary (the column / row indexes need to be matched against the category dictionary))
@@ -1143,7 +1169,7 @@ def extractValueFromDictField(inputDict,fieldList):
             inputDict=inputDict[iField]
         except:
             # throw an error indicating which file failed
-            raise ValueError('Field ' + str(iField) + ' not found in dictionary ' + str(inputDict) + '.') 
+            raise ValueError('Field ' + str(iField) + ' not found in dictionary ' + str(inputDict) + '. \n Input list = ' + str(fieldList)) 
     # extract the targetField
     fieldValue=inputDict
     # return the targetField
