@@ -154,19 +154,6 @@ def processDownloadedData(dataLocation,sourceOrg,saveDir,singleMulti='multi'):
         print('grants.gov data have been processed and saved down to ' + processedDataDir)
     return
 
-def processNIHData(dataLocation,singleMulti='single'):
-    """
-    This function processes NIH data, which come in year-wise csv files, and separate the abstract information from the project information.
-    This process will undo that, by going through the csv files, year wise, opening both the abstract and project CSVs and creating individual records
-    for each individual project.
-    Inputs:
-        dataLocation: string
-            The path to the NIH data.
-        singleMulti: string
-            A flag indicating whether the data should be saved down as a single file, or as multiple files.
-
-    """
-
 
 def mergeNIHDataToXML(dataSourceDir,xmlSaveDir):
     """
@@ -217,8 +204,34 @@ def mergeNIHDataToXML(dataSourceDir,xmlSaveDir):
         # get the current project file
         currentProjectFile=projectFileList[iYear]
         # now load up each of these files
-        currentAbstractData=pd.read_csv(currentAbstractFile,encoding = "utf-8")
-        currentProjectData=pd.read_csv(currentProjectFile, encoding = "utf-8")
+        # use try exccept in case the file isn't encoded in utf-8
+        try: 
+            currentAbstractData=pd.read_csv(currentAbstractFile,encoding = "utf-8")
+            currentProjectData=pd.read_csv(currentProjectFile, encoding = "utf-8")
+        except:
+            # if it fails, try latin-1
+            print('Warning: ' + currentAbstractFile + ' and/or ' + currentProjectFile + ' could not be loaded with utf-8 encoding.  Trying latin-1.')
+            currentAbstractData=pd.read_csv(currentAbstractFile,encoding = "latin-1")
+            currentProjectData=pd.read_csv(currentProjectFile, encoding = "latin-1")
+            # convert the content of both dataframes to utf-8, and do so robustly
+        # probably mangles numbers to strings, but the casing logic would take way more work.
+
+        # TODO: implement more robust iteration across columns and ingest the data as the correct type
+        
+        # instead of doing this there, lets do this later on the entire parsed / unparsed row
+        # try :
+        #    currentAbstractData=currentAbstractData.applymap(lambda x: x.decode('utf-8', 'ignore').encode('utf-8') if isinstance(x, str) or isinstance(x, bytes) else x)
+        # except:
+        #    print('Warning: ' + currentAbstractFile + ' could not be converted to utf-8.')
+        # currentProjectData=currentProjectData.applymap(lambda x: x.decode('utf-8', 'ignore').encode('utf-8') if isinstance(x, str) or isinstance(x, bytes) else x)
+
+        # but once more we to apply a different method because the utf-8 ignore method doesn't seem sufficient, lets go with replace
+        #currentAbstractData=currentAbstractData.applymap(lambda x: x.encode('utf-8').decode('utf-8', 'replace'))
+        #currentProjectData=currentProjectData.applymap(lambda x: x.encode('utf-8').decode('utf-8', 'replace'))
+        #repairTextInput
+        currentAbstractData=currentAbstractData.applymap(lambda x: repairTextInput(x))
+        currentProjectData=currentProjectData.applymap(lambda x: repairTextInput(x))
+        print('NIH data from year ' + str(years[iYear]) + ' have had their text encoding repaired.')
         # get the award IDs from the abstract data
         abstractAwardIDs=currentAbstractData['APPLICATION_ID'].values
         # we don't need the award IDs from the project data, they're the same, so now we just loop over the IDs
@@ -259,12 +272,25 @@ def mergeNIHDataToXML(dataSourceDir,xmlSaveDir):
                 # note that currentAwardID is currently an integer, so we need to convert it to a string
                 currentSavePath=os.path.join(xmlSaveDir,str(currentAwardID)+'.xml')
                 # now save it down
+                # NOTE: kind of arbitrarily having to implement 'rootTag' as the root of the xml structure, a convention borrowed from the NSF format
+                xmlDictionaryHolder={'rootTag': currentProjectDataDict}
 
-                with open(currentSavePath, 'w') as fd:
-                    # NOTE: kind of arbitrarily having to implement 'rootTag' as the root of the xml structure, a convention borrowed from the NSF format
-                    fd.write(xmltodict.unparse({'rootTag': currentProjectDataDict}, pretty=True))
-                # close the file
-                fd.close()
+                # NOTE THIS MAY BE REDUNDANT with the subsequent hopefullyRobustXML step
+
+                # use beautifulsoup to repair any potential issues with the xml
+                # do this within a try except structure, in case it fails
+                try:
+                    hopefullyRobustXML=BeautifulSoup(xmltodict.unparse(xmlDictionaryHolder, pretty=True),'xml')
+
+                    # now save down the content to the currentSavePath
+                    with open(currentSavePath, 'w') as fd:
+                        fd.write(hopefullyRobustXML.prettify())
+                    # close the file
+                    fd.close()
+                except:
+                    # if it fails, throw an error that indicates the award id, file name, and the cause of the error
+                    raise ValueError('The NIH data could not be saved down to '+currentSavePath + '\n' + 'The current award ID is: ' + str(currentAwardID) + '\n' + 'The current file name is: ' + currentSavePath + '\n' + 'The current xml content is: ' + xmltodict.unparse(xmlDictionaryHolder, pretty=True) )
+
         # if it fails throw an warning
     return
 
@@ -332,6 +358,64 @@ def attemptXMLrepair(xmlPath,errorLogPath=None):
         print('Error: '+xmlPath+' is not a valid XML file.')
     return
 
+def repairTextInput(inputText,outFormat='utf-8',errorHandling='ignore'):
+    """
+    This function *robustly* attempts to repair text input, including converting html entities to unicode, 
+    and ultimately converting to the desired output format.  Attempts to preserve (in a sensible fashion) 
+    as much of the input content and format as possible, while still permitting error-free conversion to the
+    desired output format.
+
+    Inputs:
+        inputText: string
+            The text to be repaired.
+        outFormat: string
+            The desired output format.  Currently supported are 'utf-8' and 'ascii'.
+        errorHandling: string
+            The desired error handling.  Currently supported are 'ignore' and 'replace'.
+    Outputs:
+        outputText: string*
+            The repaired text.  *NOTE: if the input is not a string (e.g. numeric), it will be returned as is.
+    """
+    import bs4 as BeautifulSoup
+    # Begin by detecting the input format
+    inputType=type(inputText)
+
+    # go ahead and create an escape condition if input is numeric
+    if inputType==int or inputType==float:
+        # if it is numeric, just return it
+        return inputText
+    else:
+        # first check if it is bytes
+        if inputType==bytes:
+            # if it is bytes, decode it to a string
+            inputText=inputText.decode(outFormat,errorHandling)
+    # it should be a string, if it was bytes, so now we proceed and decode other format elements (e.g. html entities)
+    # use beautifulsoup to parse and convert html entities
+    # do this within a try except structure, in case it fails
+    try:
+        # check if there is any html content
+        if bool(BeautifulSoup.BeautifulSoup(inputText,'html.parser').find()):
+            # convert the input text to a beautifulsoup object
+            soup=BeautifulSoup.BeautifulSoup(inputText,'html.parser')
+            # get the text from the soup object
+            outputText=soup.get_text()
+        else:
+            # if there is no html content, just return the input text
+            outputText=inputText
+    except:
+        # if it fails, throw an error that displays the content of what caused the error
+        raise ValueError('The input text could not be converted to a beautifulsoup object.\nThe input text is: ' + inputText )
+    
+    # now we need to convert the output text to the desired output format
+    # do this within a try except structure, in case it fails
+    try:
+        # convert the output text to the desired output format
+        outputText=outputText.encode(outFormat,errorHandling).decode(outFormat,errorHandling)
+    except:
+        # if it fails, throw an error that displays the content of what caused the error
+        raise ValueError('The output text could not be converted to the desired output format.\n The output text is: ' + outputText )
+    # return the output text
+    return outputText
 
 
 
@@ -346,6 +430,7 @@ def applyFixesToRecord_NSF(inputRecord,errorLogPath=None):
             A dictionary containing the JSON data.      
     
     """
+    import xmltodict
     from bs4 import BeautifulSoup
     import os
     import pandas as pd
@@ -360,11 +445,37 @@ def applyFixesToRecord_NSF(inputRecord,errorLogPath=None):
     # find the remapped directorate names
     validDirectorateNames=directorateRemap['fixedName'].unique()
 
-    # first, we need to convert the html entities to unicode
+    # first, we need to convert the html entities to unicode for all fields.
+    # to do this we will use xmltodict to convert the dictionary to xml, and then use repairTextInput
+    # to convert the xml content to unicode and to parse html entities
     try: 
-        if inputRecord['rootTag']['Award']['AbstractNarration'] is not None:
-            soup=BeautifulSoup(inputRecord['rootTag']['Award']['AbstractNarration'],'html.parser')
-            inputRecord['rootTag']['Award']['AbstractNarration']=soup.get_text().replace('<br/>','\n')
+        # previously
+        #if inputRecord['rootTag']['Award']['AbstractNarration'] is not None:
+            #soup=BeautifulSoup(inputRecord['rootTag']['Award']['AbstractNarration'],'html.parser')
+            #inputRecord['rootTag']['Award']['AbstractNarration']=soup.get_text().replace('<br/>','\n')
+            #TODO do an decode/encode to utf-8 here, ignoring unconverable characters
+        # iterate across the fields of the dictionary, and use repairTextInput to repair the content if the value is not a list or a dictionary
+        # if it's a dictionary, iterate across the keys and use repairTextInput to repair the content
+        # if it's a list, iterate across the list and use repairTextInput to repair the content
+        # NOTE: I don't think it ever goes deeper than 'Award','sub1,'sub2;, so we only have to recurse a few times
+
+        for iKeys in list(inputRecord.keys()):
+            if not type(iKeys)==list and not type(iKeys)==dict:
+                inputRecord[iKeys]=repairTextInput(inputRecord[iKeys])
+            elif type(inputRecord[iKeys])==dict:
+                for iSubKeys in list(inputRecord[iKeys].keys()):
+                    # if it's not a list or a dictionary, repair the content
+                    if not type(inputRecord[iKeys][iSubKeys])==list and not type(inputRecord[iKeys][iSubKeys])==dict:
+                        inputRecord[iKeys][iSubKeys]=repairTextInput(inputRecord[iKeys][iSubKeys])
+                    elif type(inputRecord[iKeys][iSubKeys])==dict:
+                        for iSubSubKeys in list(inputRecord[iKeys][iSubKeys].keys()):
+                            inputRecord[iKeys][iSubKeys][iSubSubKeys]=repairTextInput(inputRecord[iKeys][iSubKeys][iSubSubKeys])
+                    elif type(inputRecord[iKeys][iSubKeys])==list:
+                       inputRecord[iKeys][iSubKeys]=[repairTextInput(x) for x in inputRecord[iKeys][iSubKeys]]
+            elif type(inputRecord[iKeys])==list:
+                inputRecord[iKeys]=[repairTextInput(x) for x in inputRecord[iKeys]]
+
+
     except: 
         # try and create an informative error log message
         try:

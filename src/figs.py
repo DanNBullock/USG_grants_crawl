@@ -177,7 +177,7 @@ def keywordCount_barPlot(keywordCountDF,figSize=(10,5),fig=None,ax=None,figSaveP
 
     return fig,ax
 
-def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=(6.5,5),fig=None,ax=None,colorMap='viridis',figSavePath=None):
+def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=(6.5,5),fig=None,ax=None,colorMap='viridis',logScale=False,figSavePath=None):
     """
     This function takes in a matrix-like pandas dataframe and generates a heat map plot of the data.
 
@@ -196,6 +196,8 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=(6.5
             An axis object to plot the bar plot on.  If None, a new axis will be created.
         colorMap : string
             A string containing the name of the color map to use for the heat map.  See https://matplotlib.org/stable/tutorials/colors/colormaps.html for a list of available color maps.
+        logScale : boolean
+            A boolean indicating whether to use a log scale for the color map.  If True, the color map will be log scaled.  If False, the color map will not be log scaled.
         figSavePath : string
             A string containing the path to save the figure to.  If None, the figure will not be saved.
             
@@ -208,19 +210,49 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=(6.5
     """
     import matplotlib.pyplot as plt
     import seaborn as sns
+    import numpy as np
 
     # create a figure if one was not provided
     if fig is None:
         fig,ax = plt.subplots(figsize=figSize)
 
+    # for the sake of readability, if the minimum value in the matrix is zero, we will set these entries to NaN so that the color map doesn't get swamped by the zeros
+    # first, get the minimum value in the matrix
+    minVal = matrixDF.min().min()
+    # if the minimum value is zero, then set the zero entries to NaN
+    if minVal == 0:
+        matrixDF[matrixDF == 0] = np.nan
+
     # plot the data
-    sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True)
+    if logScale:
+        sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True,norm=matplotlib.colors.LogNorm())
+    else:
+        sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True)
     # set the titles
     ax.set_title('Co-occurrence matrix for ' + rowTitle + ' by ' + colTitle)
     # set the y axis label
     ax.set_ylabel(rowTitle)
     # set the x axis label
     ax.set_xlabel(colTitle)
+    # seaborn defaults to trying to reduce the number of ticks on the x axis, which is not what we want here, so we will set the x axis ticks manually
+    # first, get the number of columns in the matrix
+    numCols = matrixDF.shape[1]
+    # set the x axis ticks to be every column
+    ax.set_xticks(range(numCols))
+    # set the x axis tick labels to be the column names
+    ax.set_xticklabels(matrixDF.columns)
+    # to compensate for lots of text, lets set the tic labels to be slightly smaller than default
+    ax.tick_params(axis='x',labelsize=8)
+    # seaborn also places the x tics at the boundaries of the cells, which is not what we want here, so we will set the x axis tics to be in the middle of the cells
+    # first, get the width of the x axis
+    xWidth = ax.get_xlim()[1] - ax.get_xlim()[0]
+    # set the x axis tics to be in the middle of the cells
+    ax.set_xticks(np.arange(0.5,xWidth,1))
+
+
+    # change the y axis tick labels to be slightly smaller than default
+    ax.tick_params(axis='y',labelsize=8)
+
 
     # save the figure if a save path was provided
     if figSavePath is not None:

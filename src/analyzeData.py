@@ -29,7 +29,7 @@ def applyRegexsToDirOfXML(directoryPath,stringPhraseList,fieldsSelect):
     # iterate across pairings of the string phrases and the file names in order to create the dictionary keys
     for iStringPhrase in stringPhraseList:
         for iFile in fileList:
-            tupleDict[(iStringPhrase,iFile)]=False
+            tupleDict[(iStringPhrase,iFile.replace('.xml',''))]=False
 
     # iterate across the stringPhraseList and apply the regex search to each file
     for iStringPhrase in stringPhraseList:
@@ -272,6 +272,7 @@ def convertTupleDictToEfficientDict(tupleDict,rowDescription='',colDescription='
     efficientDict['rowName']=uniqueRowName
     efficientDict['colName']=uniqueColName
     # iterate across the rows and columns and fill in the data matrix
+
     for iRow in range(len(uniqueRowName)):
         for iCol in range(len(uniqueColName)):
             # get the row and column names
@@ -606,7 +607,7 @@ def countsFromCoOccurrenceMatrix(coOccurrenceMatrix,rowsOrColumns='rows',axisLab
     return resultsDF
 
 
-def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
+def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath='',rowLabels=None,colLabels=None):
     """
     This function takes in a non-square matrix and computes the co-occurrence matrix, which is a square matrix
     where each entry is the number of times an item in the row occurs with an item in the column.  The results
@@ -671,26 +672,34 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
         currColNames=occurenceMatrix.columns
         occurenceMatrix=occurenceMatrix.values
     # if the input is a numpy array, then proceed
+    elif isinstance(occurenceMatrix,np.ndarray) and not rowLabels==None and not colLabels==None:
+        # if it's not a pandas dataframe, and instead a numpy array, then you're not going to get row and column names
+        # so we have to generate dummy names, which will simply be integers
+        currRowNames=rowLabels
+        currColNames=colLabels
     elif isinstance(occurenceMatrix,np.ndarray):
         # if it's not a pandas dataframe, and instead a numpy array, then you're not going to get row and column names
         # so we have to generate dummy names, which will simply be integers
         currRowNames=np.arange(occurenceMatrix.shape[0])
         currColNames=np.arange(occurenceMatrix.shape[1])
-        pass
     # if the input is neither a pandas dataframe nor a numpy array, then raise an error
     else:
         raise ValueError('The input must be a pandas dataframe or a numpy array')
     # parse the case logic for rows or columns
     if rowsOrColumns=='rows':
         # compute the co-occurrence matrix
-        coOccurrenceMatrix=np.dot(occurenceMatrix.T,occurenceMatrix)
+        # coOccurrenceMatrix=np.dot(occurenceMatrix.T,occurenceMatrix)
+        # is it actually
+        coOccurrenceMatrix=np.dot(occurenceMatrix,occurenceMatrix.T)
         # set the row names
         rowNames=currRowNames
         # set the column names
         columnNames=currRowNames
     elif rowsOrColumns=='columns':
         # compute the co-occurrence matrix
-        coOccurrenceMatrix=np.dot(occurenceMatrix,occurenceMatrix.T)
+        # coOccurrenceMatrix=np.dot(occurenceMatrix,occurenceMatrix.T)
+        # is it actually
+        coOccurrenceMatrix=np.dot(occurenceMatrix.T,occurenceMatrix)
         # set the row names
         rowNames=currColNames
         # set the column names
@@ -732,7 +741,12 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
                 # if the indexes are meaningful, then save the row and column names as well
                 if indexesMeaningful:
                     # save the co-occurrence matrix as a csv
-                    coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=rowNames,columns=columnNames)
+                    # make sure that it is being saved with the right column and row names, in accordance with rowsOrColumns
+                    if rowsOrColumns=='rows': 
+                        coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=rowNames,columns=rowNames)
+                    elif rowsOrColumns=='columns':
+                        coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=columnNames,columns=columnNames)
+                    #coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=rowNames,columns=columnNames)
                     coOccurrenceMatrixDF.to_csv(defaultName+'.csv')
                 else:
                     # save the co-occurrence matrix as a csv
@@ -758,7 +772,10 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
             # if it's a csv, then save the co-occurrence matrix as a csv essentially the same way as above
             if indexesMeaningful:
                 # save the co-occurrence matrix as a csv
-                coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=rowNames,columns=columnNames)
+                if rowsOrColumns=='rows': 
+                        coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=rowNames,columns=rowNames)
+                elif rowsOrColumns=='columns':
+                    coOccurrenceMatrixDF=pd.DataFrame(coOccurrenceMatrix,index=columnNames,columns=columnNames)
                 coOccurrenceMatrixDF.to_csv(savePath)
             else:
                 # save the co-occurrence matrix as a csv
@@ -785,6 +802,38 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath=''):
 
     # return the results
     return coOccurrenceMatrix
+
+def convertStandardHDF5toPandas(inputHDF5obj):
+    """
+    In the current toolset, HDF5 files are formatted with the following standard fields:
+
+        f.create_dataset('dataMatrix',data=coOccurrenceMatrix,compression='gzip')
+        f.create_dataset('rowName',data=rowNames,compression='gzip')
+        f.create_dataset('colName',data=columnNames,compression='gzip')
+
+    Additionally, the dataMatrix, which is an np.array, is typically exceptionally sparse and (usually but not always) boolean.
+
+    This function takes in an HDF5 file with this standard format and returns a pandas dataframe with the dataMatrix as the values and the row and column names as the indexes.
+    
+    Parameters
+    ----------
+    inputHDF5obj : hdf5 object
+        An hdf5 object with the standard format described above.
+
+    Returns
+    -------
+    dataMatrixDF : pandas dataframe
+        A pandas dataframe with the dataMatrix as the values and the row and column names as the indexes.
+    """
+    import pandas as pd
+    import numpy as np
+    # get the column and row names, and convert them to strings.  Remember, they are stored as byte strings in the hdf5 file
+    columnNames=[x.decode('utf-8') for x in inputHDF5obj['colName']]
+    rowNames=[x.decode('utf-8') for x in inputHDF5obj['rowName']]
+    # for now we'll assume it's boolean and that even if the data array is large we don't need to 
+    # convert it to a sparse matrix
+    dataMatrixDF=pd.DataFrame(inputHDF5obj['dataMatrix'],index=rowNames,columns=columnNames)
+    return dataMatrixDF
 
 def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',savePath=''):
     """
@@ -838,23 +887,23 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
 
     # go ahead and use the targetAxis to obtain the appropriate axis labels
     # TODO: consider updating this to accept integer-based indexing to indicate dimension
-    if targetAxis=='rows':
-        axisLabels=matrix.index
-    elif targetAxis=='columns' or targetAxis=='cols':
-        axisLabels=matrix.columns
-    else:
-        raise ValueError('The targetAxis variable must be set to either "rows" or "columns" \n The targetAxis variable is currently set to: '+targetAxis)
+
+    rowLabels=matrix.index
+    columnLabels=matrix.columns
 
     # initialize a new matrix to store the results, but take in to account targetAxis
     if targetAxis=='rows':
-        sumMergeMatrix=pd.DataFrame(index=uniqueCategories,columns=axisLabels)
+        sumMergeMatrix=pd.DataFrame(index=uniqueCategories,columns=columnLabels)
     elif targetAxis=='columns' or targetAxis=='cols':
-        sumMergeMatrix=pd.DataFrame(index=axisLabels,columns=uniqueCategories)
+        sumMergeMatrix=pd.DataFrame(index=rowLabels,columns=uniqueCategories)
 
     # now loop through the unique categories and sum merge the appropriate rows or columns
     for iCategory in uniqueCategories:
         # get the indexes of the records that match the current category
         currentCategoryIndexes=np.where(categoryLabels==iCategory)[0]
+        if len(currentCategoryIndexes)==0:
+            raise ValueError('There are no records in the categoryKeyFileDF that match the current category: '+iCategory)
+        # raise an error if there are no records that match the current category
         # use these indexes to subset recordIDs
         currentCategoryRecordIDs=recordIDs[currentCategoryIndexes]
         # use these indexes to subset the input matrix, keeping in mind the targetAxis
@@ -919,12 +968,119 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
         # return the results
     return sumMergeMatrix      
 
-
-
-
-
+def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath=''):
+    """
+    This function takes in a matrix and computes the cosine distance metric for the elements of the specified axis.
+    The results are returned as a square matrix with the rows and columns corresponding to the elements of the specified axis.
     
+    The distance between elements i and j of the axisToCompareWithin is determined by the cosine distance of the vectors formed
+    by all of the elements of the opposite axis.  
+
+    Parameters
+    ----------
+    inputMatrixDF : pandas dataframe
+        A matrix of some sort, which contains numeric values.  The column labels and row indexes should correspond to the
+        identifiers of the elements of the specified axis.  They will be used to label the rows and columns of the output matrix.
+    axisToCompareWithin : string
+        Either 'rows' or 'columns', depending on whether you want to compute the cosine distance between the rows or the columns of the input matrix.
+    savePath : string
+        The path to which the results should be saved.  If None, then the results are not saved.  If '', then the results are saved to the current directory.
+
+    Returns
+    -------
+    cosineDistanceMatrix : pandas dataframe
+        A pandas dataframe with the cosine distance between each pair of elements of the specified axis.  The rows and columns correspond to the elements of the specified axis.
     
+    """
+    import pandas as pd
+    import numpy as np
+    import scipy.spatial.distance as ssd
+    import os
+    import h5py
+
+    # check if the input matrix is a pandas dataframe and has informative row and column labels, which we will define as being strings
+    # if it is, then proceed
+    # if it isn't then raise an error explaning why a pandas dataframe is necessary (the column / row indexes need to be matched against the category dictionary))
+    if not isinstance(inputMatrixDF,pd.DataFrame):
+        raise ValueError('A pandas dataframe with informative row and column labels is required in order to compute the cosine distance between the rows or columns of the input matrix.')
+    # check if the row and column labels are strings
+    if not np.all([isinstance(x,str) for x in inputMatrixDF.index]) or not np.all([isinstance(x,str) for x in inputMatrixDF.columns]):
+        raise ValueError('A pandas dataframe with informative row and column labels is required in order to compute the cosine distance between the rows or columns of the input matrix.')
+    
+    # go ahead and convert the input matrix to a numpy array
+    inputMatrix=inputMatrixDF.values
+
+    # parse the case logic for rows or columns
+    if axisToCompareWithin=='rows':
+        # create a list of tuples, where each tuple contains the indexes of the rows to be compared
+        comparisonIndexes=[(i,j) for i in range(inputMatrix.shape[0]) for j in range(inputMatrix.shape[0]) if i<j]
+        # initialize a list to store the results
+        cosineDistanceResults=[[] for x in range(len(comparisonIndexes))]
+        # loop through the comparison indexes and compute the cosine distance between the rows
+        for iComparison in range(len(comparisonIndexes)):
+            # get the current comparison indexes
+            currentComparisonIndexes=comparisonIndexes[iComparison]
+            # get the current comparison rows
+            currentComparisonRows=inputMatrix[currentComparisonIndexes,:]
+            # compute the cosine distance between the current comparison rows
+            currentCosineDistance=ssd.cosine(currentComparisonRows[0,:],currentComparisonRows[1,:])
+            # store the results
+            cosineDistanceResults[iComparison]=currentCosineDistance
+
+        # convert the results to a square matrix
+        cosineDistanceMatrix=np.zeros((inputMatrix.shape[0],inputMatrix.shape[0]))
+        # loop through the comparison indexes and store the results in the appropriate location in the square matrix
+        for iComparison in range(len(comparisonIndexes)):
+            # get the current comparison indexes
+            currentComparisonIndexes=comparisonIndexes[iComparison]
+            # get the current comparison rows
+            currentComparisonRows=inputMatrix[currentComparisonIndexes,:]
+            # get the current cosine distance
+            currentCosineDistance=cosineDistanceResults[iComparison]
+            # store the results
+            cosineDistanceMatrix[currentComparisonIndexes[0],currentComparisonIndexes[1]]=currentCosineDistance
+            cosineDistanceMatrix[currentComparisonIndexes[1],currentComparisonIndexes[0]]=currentCosineDistance
+        # set the row and column names
+        rowNames=inputMatrixDF.index
+        columnNames=inputMatrixDF.index
+    elif axisToCompareWithin=='columns':
+        # do the same thing as above, but with the columns
+        # create a list of tuples, where each tuple contains the indexes of the columns to be compared
+        comparisonIndexes=[(i,j) for i in range(inputMatrix.shape[1]) for j in range(inputMatrix.shape[1]) if i<j]
+        # initialize a list to store the results
+        cosineDistanceResults=[[] for x in range(len(comparisonIndexes))]
+        # loop through the comparison indexes and compute the cosine distance between the columns
+        for iComparison in range(len(comparisonIndexes)):
+            # get the current comparison indexes
+            currentComparisonIndexes=comparisonIndexes[iComparison]
+            # get the current comparison columns
+            currentComparisonColumns=inputMatrix[:,currentComparisonIndexes]
+            # compute the cosine distance between the current comparison columns
+            currentCosineDistance=ssd.cosine(currentComparisonColumns[:,0],currentComparisonColumns[:,1])
+            # store the results
+            cosineDistanceResults[iComparison]=currentCosineDistance
+        
+        # convert the results to a square matrix
+        cosineDistanceMatrix=np.zeros((inputMatrix.shape[1],inputMatrix.shape[1]))
+        # loop through the comparison indexes and store the results in the appropriate location in the square matrix
+        for iComparison in range(len(comparisonIndexes)):
+            # get the current comparison indexes
+            currentComparisonIndexes=comparisonIndexes[iComparison]
+            # get the current comparison columns
+            currentComparisonColumns=inputMatrix[:,currentComparisonIndexes]
+            # get the current cosine distance
+            currentCosineDistance=cosineDistanceResults[iComparison]
+            # store the results
+            cosineDistanceMatrix[currentComparisonIndexes[0],currentComparisonIndexes[1]]=currentCosineDistance
+            cosineDistanceMatrix[currentComparisonIndexes[1],currentComparisonIndexes[0]]=currentCosineDistance
+        # set the row and column names
+        rowNames=inputMatrixDF.columns
+        columnNames=inputMatrixDF.columns
+
+    return cosineDistanceMatrix
+
+
+
 
 
 def subsetHD5DataByKeyfile(hd5FilePathOrObject,keyFilePathOrObject,saveFilePath=None,saveFileName=None):

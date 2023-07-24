@@ -636,6 +636,7 @@ def downloadNSFgrantsData(downloadURLs,saveDirectory=None):
     import os
     import zipfile
     import tarfile
+    from glob import glob
     outPaths=[]
     # iterate across the download URLs
     for iURLs in downloadURLs:
@@ -662,4 +663,6 @@ def downloadNSFgrantsData(downloadURLs,saveDirectory=None):
         outPaths.append(savePath)
         # print an indicator of how many files have been downloaded
         print('Downloaded '+str(len(outPaths))+' of '+str(len(downloadURLs))+' files')
-    return
+    # get the list of xml files in the saveDirectory
+    xmlFiles=glob(saveDirectory+os.sep+'*.xml')
+    return xmlFiles
