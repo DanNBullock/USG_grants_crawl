@@ -33,10 +33,10 @@ def plotNullValue_barPlot(dataCompletenessDF,figSize=(10,5)):
     import pandas as pd
 
     # get the max value from the last row of the dataframe
-    maxVal = dataCompletenessDF.iloc[-1,1]
+    
 
-    # remove the last row from the dataframe
-    dataCompletenessDF = dataCompletenessDF.iloc[:-1,:]
+    # remove the row with the total number of records assessed, 'totalNumRecords'
+    dataCompletenessDF = dataCompletenessDF[dataCompletenessDF['fieldName'] != 'totalNumRecords']
 
     # create a figure
     fig,ax = plt.subplots(figsize=figSize)
@@ -63,9 +63,10 @@ def plotNullValue_barPlot(dataCompletenessDF,figSize=(10,5)):
     # plot the data
     sns.barplot(x='fieldName',y='numEmpty',data=dataCompletenessDF,ax=ax)
     # set the y-axis limits
-    ax.set_ylim([0,maxVal])
+    #ax.set_ylim([0,maxVal])
     # set the x axis labels to be rotated 60 degrees
-    ax.set_xticklabels(ax.get_xticklabels(),rotation=60)
+    # NOTE: this doesn't work because it messes up the alignment of the x axis labels with the x axis tics
+    ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
     # set the title
     ax.set_title('Number of null values per field')
     # set the y axis label
@@ -79,6 +80,9 @@ def plotNullValue_barPlot(dataCompletenessDF,figSize=(10,5)):
         # also reduce the spacing between separate lines of text in the x axis labels by modifyin the linespacing parameter
         for label in ax.get_xticklabels():
             label.set_linespacing(0.5)
+
+    # make sure the figure bounds are sufficiently generous so as to not cut off any text
+    fig.tight_layout()
 
 
 
@@ -109,7 +113,8 @@ def plotWordCount_histogram(wordCountDF,figSize=(10,5),binSize=3):
     fig,ax = plt.subplots(figsize=figSize)
 
     # plot the data
-    sns.histplot(wordCountDF['wordCount'],bins=np.arange(0,wordCountDF['wordCount'].max()+binSize,binSize),kde=False,ax=ax)
+    # starting at 1, go up to the max word count in steps of binSize
+    sns.histplot(wordCountDF['wordCount'],bins=np.arange(1,wordCountDF['wordCount'].max()+binSize,binSize),kde=False,ax=ax)
     # set the title
     ax.set_title('Word count histogram')
     # set the x axis label
@@ -119,7 +124,7 @@ def plotWordCount_histogram(wordCountDF,figSize=(10,5),binSize=3):
 
     return fig
 
-def keywordCount_barPlot(keywordCountDF,figSize=(10,5),fig=None,ax=None,figSavePath=None):
+def keywordCount_barPlot(keywordCountDF,figSize=(10,5),fig=None,ax=None,logScale=False,figSavePath=None):
     """
     This function takes in the keywordCount dataframe from analyzeData.countsFromCoOccurrenceMatrix
     and produces a seaborn bar plot of the number of occurrences of each keyword.
@@ -139,6 +144,8 @@ def keywordCount_barPlot(keywordCountDF,figSize=(10,5),fig=None,ax=None,figSaveP
             A figure object to plot the bar plot on.  If None, a new figure will be created.
         ax : matplotlib axis object
             An axis object to plot the bar plot on.  If None, a new axis will be created.
+        logScale : boolean
+            A boolean indicating whether to use a log scale for the y axis.  If True, the y axis will be log scaled.  If False, the y axis will not be log scaled.
         figSavePath : string
             A string containing the path to save the figure to.  If None, the figure will not be saved.
 
@@ -158,9 +165,13 @@ def keywordCount_barPlot(keywordCountDF,figSize=(10,5),fig=None,ax=None,figSaveP
         fig,ax = plt.subplots(figsize=figSize)
 
     # plot the data
-    sns.barplot(x='itemID',y='count',data=keywordCountDF,ax=ax)
+    if logScale :
+        sns.barplot(x='itemID',y='count',data=keywordCountDF,ax=ax,log=True)
+    else :
+        sns.barplot(x='itemID',y='count',data=keywordCountDF,ax=ax)
     # set the x axis labels to be rotated 60 degrees
-    ax.set_xticklabels(ax.get_xticklabels(),rotation=60)
+    # NOTE: this doesn't work because it messes up the alignment of the x axis labels with the x axis tics
+    ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
     # set the title
     ax.set_title('Keyword counts')
     # set the y axis label
@@ -209,6 +220,7 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=(6.5
 
     """
     import matplotlib.pyplot as plt
+    import matplotlib
     import seaborn as sns
     import numpy as np
 
@@ -306,6 +318,10 @@ def matrix_histogramCounts(inputMatrix,keepAxis='columns',dropZero=True,binSize=
     # create a figure if one was not provided
     if fig is None:
         fig,ax = plt.subplots(figsize=figSize)
+
+    # if the input matrix is a pandas dataframe, then we will convert it to a numpy array
+    if isinstance(inputMatrix,pd.DataFrame):
+        inputMatrix = inputMatrix.values
 
     # sum across the axis that is not kept, but be robust to the input matrix being a numpy array or pandas dataframe
     if keepAxis == 'rows':

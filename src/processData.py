@@ -530,6 +530,49 @@ def applyFixesToRecord_NSF(inputRecord,errorLogPath=None):
     # TODO: implement future record fixes here
     return inputRecord
 
+def allXML_to_pickle(directoryPath,outFilePath):
+    """
+    This function takes a directory of XML files and converts them to a single pickle file, which is just a 
+    dictionary of dictionaries. The keys are the file names (without file extension), and the values are the dictionaries of the XML files.
+
+    Parameters
+    ----------
+    directoryPath : str
+        The path to the directory containing the XML files.
+    outFilePath : str
+        The path to the output pickle file.
+
+    Returns
+    -------
+    None.
+    
+    """
+    import os
+    import pickle
+    import xmltodict
+    import pandas as pd
+    from tqdm import tqdm
+    # get the list of files
+    fileList=os.listdir(directoryPath)
+    # get the list of file names without the extension
+    fileNameList=[x.split('.')[0] for x in fileList]
+    # create an empty dictionary to store the XML files
+    xmlDict={}
+    # iterate across the files
+    for iFile in tqdm(fileList):
+        # open the file
+        with open(os.path.join(directoryPath,iFile),'r') as xmlFile:
+            # convert the file to a dictionary
+            try:
+                xmlDict[iFile.split('.')[0]]=xmltodict.parse(xmlFile.read())
+            except:
+                 xmlDict[iFile.split('.')[0]]={}
+    
+    # save the dictionary as a pickle file
+    with open(outFilePath, 'wb') as handle:
+        pickle.dump(xmlDict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    return
+
 
 def reTypeGrantColumns(grantsDF):
     """
