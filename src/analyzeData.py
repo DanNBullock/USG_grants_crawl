@@ -1187,7 +1187,7 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath='',rowLabel
 
     Returns
     -------
-    coOccurrenceMatrix : numpy array
+    coOccurrenceMatrix : numpy array of dtype int
         A square matrix with the rows and columns corresponding to the items in the rows or columns of the input matrix, depending on the rowsOrColumns variable.
         The i and j elements are understood to correspond to the same set of items, such that the i,j element is the number of times the i item occurs with the j item.
         
@@ -1200,6 +1200,7 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath='',rowLabel
     import numpy as np
     import pandas as pd
     import h5py
+    from warnings import warn
 
     """
     this doesn't do what was expected / intended.  rowsums= number hits per term across documents, colsums = number of terms per document.
@@ -1230,31 +1231,30 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath='',rowLabel
         currRowNames=occurenceMatrix.index
         currColNames=occurenceMatrix.columns
         occurenceMatrix=occurenceMatrix.values
-        # ensure occurenceMatrix is a boolean matrix
-        occurenceMatrix=occurenceMatrix.astype(bool)
+        # ensure occurenceMatrix is a int matrix, so that np.dot will return a count of co-occurrences rathern than a boolean indicating whether or not there was a co-occurrence
+        occurenceMatrix=occurenceMatrix.astype(int)
     # if the input is a numpy array, then proceed
     elif isinstance(occurenceMatrix,np.ndarray) and not rowLabels==None and not colLabels==None:
         # if it's not a pandas dataframe, and instead a numpy array, then you're not going to get row and column names
         # so we have to generate dummy names, which will simply be integers
         currRowNames=rowLabels
         currColNames=colLabels
-        # ensure occurenceMatrix is a boolean matrix
-        occurenceMatrix=occurenceMatrix.astype(bool)
+        # ensure occurenceMatrix is a int matrix, so that np.dot will return a count of co-occurrences rathern than a boolean indicating whether or not there was a co-occurrence
+        occurenceMatrix=occurenceMatrix.astype(int)
     elif isinstance(occurenceMatrix,np.ndarray):
         # if it's not a pandas dataframe, and instead a numpy array, then you're not going to get row and column names
         # so we have to generate dummy names, which will simply be integers
         currRowNames=np.arange(occurenceMatrix.shape[0])
         currColNames=np.arange(occurenceMatrix.shape[1])
-        # ensure occurenceMatrix is a boolean matrix
-        occurenceMatrix=occurenceMatrix.astype(bool)
+        # ensure occurenceMatrix is a int matrix, so that np.dot will return a count of co-occurrences rathern than a boolean indicating whether or not there was a co-occurrence
+        occurenceMatrix=occurenceMatrix.astype(int)
     # if the input is neither a pandas dataframe nor a numpy array, then raise an error
     else:
         raise ValueError('The input must be a pandas dataframe or a numpy array')
     # parse the case logic for rows or columns
     if rowsOrColumns=='rows':
-        # compute the co-occurrence matrix
-        # coOccurrenceMatrix=np.dot(occurenceMatrix.T,occurenceMatrix)
-        # is it actually
+        # compute the number of times that items co-occur
+
         coOccurrenceMatrix=np.dot(occurenceMatrix,occurenceMatrix.T)
         # set the row names
         rowNames=currRowNames
@@ -1365,6 +1365,17 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath='',rowLabel
         else:
             raise ValueError('The savePath variable must be either blank (''), None, or end with ".csv" or ".hdf5"')      
 
+    # throw a warning if the co-occurence matrix is all zeros or boolean (as it should be a count)
+    # compute this using np.unique
+    uniqueValues=np.unique(coOccurrenceMatrix)
+    # if the only unique values are 0 and 1 (or merely 0 or 1), then throw a warning
+    # just assume if the sum of the unique values is 1 or 0 and the length is less than 3, that the warning should be thrown
+    if (uniqueValues.sum()<=1) and (len(uniqueValues)<3):
+        warnings.warn('The co-occurrence matrix is boolean or all zeros. This is likely an error. Please check the input data and try again.')
+
+
+
+
     # return the results
     return coOccurrenceMatrix
 
@@ -1433,6 +1444,7 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
     import numpy as np
     import os
     import h5py
+    import time
     # check if the input matrix is a pandas dataframe
     # if it is, then proceed
     # if it isn't then raise an error explaning why a pandas dataframe is necessary (the column / row indexes need to be matched against the category dictionary))
@@ -1441,13 +1453,18 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
     
     # make an attempt to parse the input categoryKeyFileDF.  Start by trying to index into the columns 'itemID' and 'fieldValue'.  If that doesn't work, throw a warning and index into the first two columns, with the first being assumed to be the equivalent of 'itemID' and the second assumed to be the equivalent of 'fieldValue'.
     try:
+        # as noted in the except clause here, for whatever reason .values is converting the categoryLabels to floats, so we need to convert them to strings
         recordIDs=categoryKeyFileDF['itemID'].values
         categoryLabels=categoryKeyFileDF['fieldValue'].values
     except:
         print('Warning: The input categoryKeyFileDF does not have the expected column names.  Attempting to infer the appropriate columns.  THIS MAY RESULT IN AN ERROR')
-        recordIDs=categoryKeyFileDF.iloc[:,0].values
-        categoryLabels=categoryKeyFileDF.iloc[:,1].values
+        # note it is interpreting the categoryKeyFileDF content (which are numeric IDs) as floats, so we need to convert them to integers, so we need to convert them to strings first
+        recordIDs=[str(int(x)) for x in categoryKeyFileDF.iloc[:,0].values]
+        categoryLabels=list(categoryKeyFileDF.iloc[:,1].values)
     # go ahead and establish the unique categories
+    # ? <' not supported between instances of 'float' and 'str'
+    # I don't know why I have to do this, but apparently I have to convert categoryLabels to a list of strings, even though there arent any floats in there
+    categoryLabels=[str(x) for x in categoryLabels]
     uniqueCategories=np.unique(categoryLabels)
 
     # go ahead and use the targetAxis to obtain the appropriate axis labels
@@ -1455,6 +1472,8 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
 
     rowLabels=matrix.index
     columnLabels=matrix.columns
+    # print the value and type of the first item of row and column labels
+
 
     # initialize a new matrix to store the results, but take in to account targetAxis
     if targetAxis=='rows':
@@ -1463,27 +1482,74 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
         sumMergeMatrix=pd.DataFrame(index=rowLabels,columns=uniqueCategories)
 
     # now loop through the unique categories and sum merge the appropriate rows or columns
+    # give a print statement indicating where we stand in the process and the task ahead
+    print('Sum merging matrix by categories.  ' + str(len(recordIDs)) + ' to be merged into ' + str(len(uniqueCategories)) + ' categories.')
+    # start a timer
+    # debug print categoryLabels with ten items per line
+    #print('categoryLabels: ')
+    #for i in range(0,len(categoryLabels)):
+    #    if i%10==0:
+    #        print('')
+    #    print(categoryLabels[i],end=' ')
+    #print('')
+
+    startTime=time.time()
     for iCategory in uniqueCategories:
         # get the indexes of the records that match the current category
-        currentCategoryIndexes=np.where(categoryLabels==iCategory)[0]
+        #print('iCategory: ' + str(iCategory))
+        # create a vector that identifies the indexes of the records in categoryLabels that match the current category
+        currentLabelBoolVec=[x==iCategory for x in categoryLabels]
+        # print the sum of the currentLabelBoolVec
+        #print('sum(currentLabelBoolVec): ' + str(sum(currentLabelBoolVec)))
+        # get the indexes of true values in currentLabelBoolVec using np.where
+        currentCategoryIndexes=np.where(currentLabelBoolVec)[0]
+
+
+        # print the currentCategoryIndexes
+        # debug print statement: indicate how many records were found for the current category
+        #print('Found ' + str(len(currentCategoryIndexes)) + ' records for category: ' + iCategory)
         if len(currentCategoryIndexes)==0:
-            raise ValueError('There are no records in the categoryKeyFileDF that match the current category: '+iCategory)
-        # raise an error if there are no records that match the current category
+            # actually, don't raise this error because it's possible that we have been passed a post-threshold input matrix in which all of the records for a given sub-organization have been removed.
+            # raise ValueError('There are no records in the categoryKeyFileDF that match the current category: '+iCategory)
+            # raise an error if there are no records that match the current category
+
+            # the column for this category should already exist sumMergeMatrix, but it's possible that it's simply blank rather than set to zeros
+            # so lets go ahead and set it to zeros
+            if targetAxis=='rows':
+                # print a warning indicating that there are no records for the current category
+                print('Warning: There are no records in the categoryKeyFileDF that match the current category: '+iCategory)
+                sumMergeMatrix.loc[iCategory,:]=0
+            elif targetAxis=='columns' or targetAxis=='cols':
+                sumMergeMatrix.loc[:,iCategory]=0
+                print('Warning: There are no records in the categoryKeyFileDF that match the current category: '+iCategory)
+
+            # print an indicator as to which category did not have any records
+            print('Warning: There are no records in the categoryKeyFileDF that match the current category: '+iCategory)
         # use these indexes to subset recordIDs
-        currentCategoryRecordIDs=recordIDs[currentCategoryIndexes]
-        # use these indexes to subset the input matrix, keeping in mind the targetAxis
-        if targetAxis=='rows':
-            currentCategoryMatrix=matrix.loc[currentCategoryRecordIDs,:]
-            # sum merge the current category matrix
-            currentCategoryMatrix=currentCategoryMatrix.sum(axis=0)
-            # add the results to the corresponding location in the sumMergeMatrix
-            sumMergeMatrix.loc[iCategory,:]=currentCategoryMatrix
-        elif targetAxis=='columns' or targetAxis=='cols':
-            currentCategoryMatrix=matrix.loc[:,currentCategoryRecordIDs]
-            # sum merge the current category matrix
-            currentCategoryMatrix=currentCategoryMatrix.sum(axis=1)
-            # add the results to the corresponding location in the sumMergeMatrix
-            sumMergeMatrix.loc[:,iCategory]=currentCategoryMatrix
+        else :
+            currentCategoryRecordIDs=recordIDs[currentCategoryIndexes]
+            # print the length and contents of currentCategoryRecordIDs
+            # use these indexes to subset the input matrix, keeping in mind the targetAxis
+            
+            if targetAxis=='rows':
+                # index into the relevant rows of the matrix]
+                currentCategoryMatrix=matrix.loc[[iRow in currentCategoryRecordIDs for iRow in matrix.index],:]
+                # sum merge the current category matrix
+                currentCategoryMatrix=currentCategoryMatrix.sum(axis=0)
+                # print the sum and the shape of the current category matrix
+                # add the results to the corresponding location in the sumMergeMatrix
+                sumMergeMatrix.loc[iCategory,:]=currentCategoryMatrix
+            elif targetAxis=='columns' or targetAxis=='cols':
+                currentCategoryMatrix=matrix.loc[:,[iRow in currentCategoryRecordIDs for iRow in matrix.columns]]
+                # sum merge the current category matrix
+                currentCategoryMatrix=currentCategoryMatrix.sum(axis=1)
+                # print the sum and the shape of the current category matrix
+                # add the results to the corresponding location in the sumMergeMatrix
+                sumMergeMatrix.loc[:,iCategory]=currentCategoryMatrix
+   
+    # print a message indicating that the merge process is complete
+    print('Sum merge operations complete.  Time elapsed: ' + str(time.time()-startTime) + ' seconds.')
+    
     
     # determine the desired saving behavior, stealing this code from coOccurrenceMatrix
     if savePath is not None:
@@ -1504,6 +1570,7 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
             if sumMergeMatrix.shape[0]<thresholdCSV:          
                 # save the sumMergeMatrix matrix as a csv
                 sumMergeMatrix.to_csv(defaultName+'.csv')
+                print('Saved sumMergeMatrix matrix as a csv to \n' + defaultName+'.csv')
             # if the number of rows or columns is greater than the threshold, then save as an hdf5
             else:
                 # save the co-occurrence matrix as an hdf5
@@ -1513,10 +1580,12 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
                     f.create_dataset('colName',data=sumMergeMatrix.columns,compression='gzip')
                 # now close the file
                 f.close()
+                print('Saved sumMergeMatrix matrix as an hdf5 to \n' + defaultName+'.hdf5')
         # if it's not blank, then check if it's a csv or an hdf5
         elif savePath.endswith('.csv'):
             # if it's a csv, then save the co-occurrence matrix as a csv essentially the same way as above
             sumMergeMatrix.to_csv(savePath)
+            print('Saved sumMergeMatrix matrix as a csv to \n' + savePath)
 
         elif savePath.endswith('.hdf5'):
             # if it's an hdf5, then save the co-occurrence matrix as an hdf5 essentially the same way as above
@@ -1526,6 +1595,7 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
                 f.create_dataset('colName',data=sumMergeMatrix.columns,compression='gzip')
                 # now close the file
                 f.close()
+                print( 'Saved sumMergeMatrix matrix as an hdf5 to \n' + savePath)
         # if it's not blank, csv, or hdf5, or None then raise an error
         else:
             raise ValueError('The savePath variable must be either blank (''), None, or end with ".csv" or ".hdf5"')
@@ -2444,5 +2514,4 @@ def detectDataSourceFromSchema(testDirOrFile):
     else:    
         dataSource=None
     return dataSource
-
 
