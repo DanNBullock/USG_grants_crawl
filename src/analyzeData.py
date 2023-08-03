@@ -137,7 +137,9 @@ def applyRegexsToDirOfXML(directoryPathORDictionary,stringPhraseList,fieldsSelec
     # we will be using prepareTextForNLP(inputText,stopwordsList=None,lemmatizer=None) for this, using list comprehension
     NLPreadyStringPhraseList=[prepareTextForNLP(iStringPhrase,stopwordsList=stopwords,lemmatizer=lemmatizer) for iStringPhrase in stringPhraseList] 
     # now we compile the regexes, using list comprehension
-    compiledRegexes=[re.compile(iRegex) for iRegex in NLPreadyStringPhraseList]
+    # we should actually do this better, and should be compiling the regex search strings such that the terms/phrases are abutted by word boundaries
+    # this will prevent partial word matches
+    compiledRegexes=[re.compile('\\b'+iStringPhrase+'\\b') for iStringPhrase in NLPreadyStringPhraseList]
 
     # NSF = ~ 4 gb and NIH = ~ 8 gb so let's just get greedy and load everything into memory
 
