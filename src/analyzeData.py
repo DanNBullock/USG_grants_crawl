@@ -84,6 +84,8 @@ def applyRegexsToDirOfXML(directoryPathORDictionary,stringPhraseList,fieldsSelec
     import numpy as np
     import datetime
     import xmltodict
+    import time
+    from glob import glob
 
 
     """
@@ -195,8 +197,9 @@ def applyRegexsToDirOfXML(directoryPathORDictionary,stringPhraseList,fieldsSelec
         # check if the input is a string or a list of strings
         elif isinstance(directoryPathORDictionary,str):
             fileList=os.listdir(directoryPathORDictionary)
-            # filter the list down to only the xml files
-            fileList=[iFile for iFile in fileList if iFile[-4:]=='.xml']
+            # filter the list down to only the xml files using glob
+            fileList=glob(os.path.join(directoryPathORDictionary,'*.xml'))
+            
 
                       # lets use dask to do a parallelized load of the xml files in to memory
             print('Loading XML files into memory using dask...')
@@ -356,18 +359,30 @@ def applyRegexsToDirOfXML(directoryPathORDictionary,stringPhraseList,fieldsSelec
             # also create a list of the recordIDs from the file names, there shouldn't be file extensions in the dictionary
             recordIDList=list(directoryPathORDictionary.keys())
         
-        # create a pandas dataframe to store the results
-        # the index should be the string phrases from stringPhraseList
-        # the columns should be the record IDs from recordIDList
-        regexResultDF=pd.DataFrame(index=stringPhraseList,columns=recordIDList,dtype=bool)
+        # create a numpy array to hold the output
+        outputArray=np.zeros((len(stringPhraseList),len(xmlDictBag)),dtype=bool)
         
         # in either case, we'll need to iterate across the files and apply the regex search to each file
+        # create a holder for the timing results
+        timesHolder=np.zeros(len(xmlDictBag))
+
         # iterate across the files
         for iFileIndex,iFile in enumerate(xmlDictBag):
             # this returns a boolean vector of length N, where N is the number of items in stringPhraseList
+            # start the timer
+            startTime=time.time()
             regexResultVec=applyRegexesToFieldFromXMLFile(iFile,compiledRegexes,fieldsSelect)
+            # stop the timer
+            endTime=time.time()
+            # store the time
+            timesHolder[iFileIndex]=endTime-startTime
             # place the regexResultVec in the appropriate column of the dataframe
-            regexResultDF.iloc[:,iFileIndex]=regexResultVec
+            outputArray[:,iFileIndex]=regexResultVec
+        # print the average time
+        print('Average time to apply regexes to a single file: ' + str(np.mean(timesHolder)) + ' seconds.')
+
+        # create a pandas dataframe from the output array, the column names should be the record IDs from recordIDList, while the row names should be the string phrases from stringPhraseList
+        regexResultDF=pd.DataFrame(outputArray,index=stringPhraseList,columns=recordIDList,dtype=bool)
     return regexResultDF
                       
 def flattenDictionary(dictionaryToFlatten):
@@ -1605,6 +1620,444 @@ def sumMergeMatrix_byCategories(matrix,categoryKeyFileDF,targetAxis='columns',sa
         # return the results
     return sumMergeMatrix      
 
+def sumMergeMatrix_byCategories_REFACTOR(matrix,categoryKeyFileDF,targetAxis='columns',savePath=''):
+    """
+    This is a refactored version of the sumMergeMatrix_byCategories function.  The previous version takes an exceptional amount of time,
+    and so this refactoring is an attempt to substantially improve the performance of the function.
+
+    This function takes in a matrix and category dictionary (in the form of a two column pandas dataframe) and returns a new matrix
+    where the elements of the specified axis have been condensed into the agglomerations specified by the category dictionary.
+    In this way, the output matrix will retain the same number of opposite axis elements, but will have N number of `targetAxis` elements,
+    where N is the number of unique categories in the category dictionary.
+
+    Parameters
+    ----------
+    matrix : pandas dataframe
+        A matrix of some sort, presumably bool, but potentially numeric.  The column / row indexes should correspond to the 
+        identifiers (first column) in the `categoryKeyFileDF`, and be consistent with the axis requested in the `targetAxis` variable.
+    categoryKeyFileDF : pandas dataframe
+        A two column pandas dataframe where the first column contains the identifiers (presumably `itemID`) 
+        and the second column contains the category labels (presumably `fieldValue`); presumably as in the convention of the output of fieldExtractAndSave.
+    targetAxis : string
+        Either 'rows' or 'columns', depending on whether you want to sum merge the rows or columns of the input matrix.  This is the axis
+        across which the identifiers (from categoryKeyFileDF[`itemID`]) will be searched for.
+    savePath : string
+        The path to which the results should be saved.  If None, then the results are not saved.  If '', then the results are saved to the current directory.
+
+    Returns
+    -------
+    sumMergeMatrix : pandas dataframe
+        A pandas dataframe with summations across the specified axis for each unique category in the category dictionary.  The non-requested axis's 
+        indexes should be preserved, however the requested axis's indexes should be replaced with the unique categories from the category dictionary.
+    
+    NOTE: consider refactoring this in light of the hd5 functionality implemented in subsetHD5DataByKeyfile
+    """
+    import pandas as pd
+    import numpy as np
+    import time
+    # and checking and parsing the input variables
+
+    # check if the input matrix is a pandas dataframe
+    # if it is, then proceed
+    # if it isn't then raise an error explaning why a pandas dataframe is necessary (the column / row indexes need to be matched against the category dictionary))
+    if not isinstance(matrix,pd.DataFrame):
+        raise ValueError('The input `inputDF` must be a pandas dataframe in order to match category indentities from `categoryKeyFile` with specific records in the matrix.')
+    # go ahead and sort the input dataframe by the target axis
+    # this will make it easier to extract the target records
+    if targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        # sort the dataframe by the index
+        inputDF=matrix.sort_index(axis=0)
+    elif targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        # sort the dataframe by the columns
+        inputDF=matrix.sort_index(axis=1)
+    else:
+        # print the current value of targetAxis
+        print('The current value of `targetAxis` is: '+str(targetAxis))
+        raise ValueError('The input `targetAxis` cannot be parsed.  Please enter either "rows" or "columns".')
+
+    # parse the input category key file
+    # if it's a dictionary, convert it to a pandas dataframe, as we'll be creating a boolean mask of the record ID vector / axis
+    if isinstance(categoryKeyFileDF,dict):
+        # convert the dictionary to a pandas dataframe
+        # remember we want the record IDs to be the first column and the category labels to be the second column
+        # go ahead and create an empty target dataframe
+        categoryKeyFileDF_temp=pd.DataFrame(columns=['itemID','fieldValue'])
+        # loop through the dictionary to create a list of record IDs and a list of the associated category label repeated for the number of record IDs for the current key
+        # the value associated with the key should already be a list
+        for iKeys in range(len(categoryKeyFileDF.keys())):
+            # get the current key
+            currentKey=list(categoryKeyFileDF.keys())[iKeys]
+            # get the current list of record IDs
+            currentRecordIDs=categoryKeyFileDF[currentKey]
+            # create a list of the current category label repeated for the number of record IDs
+            currentCategoryLabels=currentKey * len(currentRecordIDs)
+            # create a temporary dataframe for the current key
+            currentKeyDF=pd.DataFrame({'itemID':currentRecordIDs,'fieldValue':currentCategoryLabels})
+            # append the temporary dataframe to the target dataframe using concat
+            categoryKeyFileDF_temp=pd.concat([categoryKeyFileDF_temp,currentKeyDF],axis=0,ignore_index=True)
+        # now set the categoryKeyFileDF to the categoryKeyFileDF_temp
+        categoryKeyFileDF=categoryKeyFileDF_temp
+    elif isinstance(categoryKeyFileDF,pd.DataFrame):
+        # if the input category key file is already a pandas dataframe, then just set the categoryKeyFileDF variable to the input category key file
+        categoryKeyFileDF=categoryKeyFileDF
+
+    # go ahead and sort the categoryKeyFileDF by the recordID column, and then extract each column as a list (remember pandas is slow)
+    categoryKeyFileDF=categoryKeyFileDF.sort_values(by='itemID')
+
+    # NOTE:  one might think about trying to subset the categoryKeyFileDF now, so that we don't have to worry about working with records for categories we don't care about
+    # HOWEVER we want the recordIDs to be of the same length as the designated axis of the input matrix so that we can use boolean masks / indexing.
+    # this means that we need to do a check now to ensure that the labels of the target axis of inputDF are a subset of the 'recordIDs' in categoryKeyFileDF
+    # if they aren't, then raise an error, if they are, then we subset the categoryKeyFileDF contents to only those records that are in the target axis of inputDF
+    
+    if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        # get the target axis labels and treat them as a set
+        targetAxisLabels=set(inputDF.columns)
+        # get the record IDs from the categoryKeyFileDF and treat them as a set
+        recordLabelsFromCategoryFile=set(categoryKeyFileDF['itemID'].values)
+        # check if the target axis labels are a subset of the record labels
+        if not targetAxisLabels.issubset(recordLabelsFromCategoryFile):
+            # print the length of both sets
+            print('The length of the target axis labels is: '+str(len(targetAxisLabels)))
+            print('The length of the record labels from the category key file is: '+str(len(recordLabelsFromCategoryFile)))
+            # also print their the elements that are in the target axis labels but not in the record labels from the category key file
+            print('The elements in the target axis labels that are not in the record labels from the category key file are: '+str(targetAxisLabels.difference(recordLabelsFromCategoryFile)))
+            # if they aren't, then raise an error
+            raise ValueError('The target axis labels of the input matrix are not a subset of the record IDs in the categoryKeyFileDF.  This means that category assignments cannot be made for all records in the input matrix.')
+        else:
+            # if they are, then subset the categoryKeyFileDF to only those records in the target axis
+            categoryKeyFileDF=categoryKeyFileDF[categoryKeyFileDF['itemID'].isin(targetAxisLabels)]
+    elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        # get the target axis labels and treat them as a set
+        targetAxisLabels=set(inputDF.index)
+        # get the record IDs from the categoryKeyFileDF and treat them as a set
+        recordLabelsFromCategoryFile=set(categoryKeyFileDF['itemID'].values)
+        # check if the target axis labels are a subset of the record labels
+        if not targetAxisLabels.issubset(recordLabelsFromCategoryFile):
+            # print the length of both sets
+            print('The length of the target axis labels is: '+str(len(targetAxisLabels)))
+            print('The length of the record labels from the category key file is: '+str(len(recordLabelsFromCategoryFile)))
+            # also print their the elements that are in the target axis labels but not in the record labels from the category key file
+            print('The elements in the target axis labels that are not in the record labels from the category key file are: \n '+str(targetAxisLabels.difference(recordLabelsFromCategoryFile)))            # if they aren't, then raise an error
+            raise ValueError('The target axis labels of the input matrix are not a subset of the record IDs in the categoryKeyFileDF.  This means that category assignments cannot be made for all records in the input matrix.')
+        else:
+            # if they are, then subset the categoryKeyFileDF to only those records in the target axis
+            categoryKeyFileDF=categoryKeyFileDF[categoryKeyFileDF['itemID'].isin(targetAxisLabels)]
+  
+    # in order for the boolean mask to work, the mask must be of the same length as the axis of the input matrix
+    # as such check to ensure that the axis specified in targetAxis for the input matrix is of the same length as the number of records in the (post subset) categoryKeyFileDF
+
+    # check to ensure that the axis specified in targetAxis for the input matrix is of the same length as the number of records in the categoryKeyFileDF
+    # if it is, then proceed
+    if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        if len(inputDF.columns)!=len(categoryKeyFileDF['itemID']):
+            # print the lengths so the user can see what's going on
+            print('The number of columns in the input matrix is ' + str(len(inputDF.columns)) + ' and the number of records in the categoryKeyFileDF is ' + str(len(categoryKeyFileDF['itemID'])))
+            raise ValueError('The number of columns in the input matrix does not match the number of records in the categoryKeyFileDF.  This is likely due to a mismatch in the axis specified in the targetAxis variable.')
+    elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        if len(inputDF.index)!=len(categoryKeyFileDF['itemID']):
+            # print the lengths so the user can see what's going on
+            print('The number of rows in the input matrix is ' + str(len(inputDF.index)) + ' and the number of records in the categoryKeyFileDF is ' + str(len(categoryKeyFileDF['itemID'])))
+            raise ValueError('The number of rows in the input matrix does not match the number of records in the categoryKeyFileDF.  This is likely due to a mismatch in the axis specified in the targetAxis variable.')
+
+    # get the unique category labels from the categoryKeyFileDF
+    uniqueCategoryLabels=list(set(categoryKeyFileDF['fieldValue'].values))
+    
+    # go ahead and get both the recordIDs and the category labels from the categoryKeyFileDF as lists
+    recordIDs=list(categoryKeyFileDF['itemID'].values)
+    categoryLabels=list(categoryKeyFileDF['fieldValue'].values)
+
+    # do a quick print report to indicate the number of records, unique categories, and the number of records per category
+    print('There are ' + str(len(recordIDs)) + ' records in the categoryKeyFileDF, across ' + str(len(uniqueCategoryLabels)) + ' unique categories.')
+    # print the number of records per category, with three such reports per line
+    print('The number of records per category are:')
+    for i in range(0,len(uniqueCategoryLabels),3):
+        print(uniqueCategoryLabels[i] + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i])),end=' ')
+        if i+1<len(uniqueCategoryLabels):
+            print(uniqueCategoryLabels[i+1] + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i+1])),end=' ')
+        if i+2<len(uniqueCategoryLabels):
+            print(uniqueCategoryLabels[i+2] + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i+2])),end=' ')
+        print('')
+    
+    # create the output dataframe, which should retain the off-axis labels (e.g. the axis opposing the one specified in targetAxis), but will have the targetAxis labels replaced with the category labels
+    if targetAxis=='columns':
+        # we use float even though the values will be integers, because we want to be able to use NaN to indicate that a category is not present for a given record, for subsequent plotting purposes
+        outputDF=pd.DataFrame(index=matrix.index,columns=uniqueCategoryLabels,dtype=float)
+    elif targetAxis=='rows':
+        # we use float even though the values will be integers, because we want to be able to use NaN to indicate that a category is not present for a given record, for subsequent plotting purposes
+        outputDF=pd.DataFrame(index=uniqueCategoryLabels,columns=matrix.columns,dtype=float)
+     
+    # print statement indicating that the input variables have been checked and parsed, and that we are now moving to the subset-summation operation.
+    print('Input variables have been checked and parsed, proceeding to indexer and intermediary array production.')    
+    """
+    Input variables have been checked and parsed, now we implement the subset-summation operation.
+    """
+    # print statment about precomputing and intermediary array production
+    print('Precomputing indexers and creating intermediary arrays.')
+    # here we'll do a few pre-merge operations to speed things up
+    # in accordance with this stackoverflow post: https://stackoverflow.com/questions/54767327/pandas-performance-columns-selection
+    # we probably want to avoid using .loc to select columns, as it is slow.
+    # I'm not sure, but we may even want to avoid using a list of column indexes, and thus instead use a boolean mask to select the columns we want.
+    # to this end, let's create a dictionary of boolean masks, where the keys are the unique category labels, and the values are the boolean masks for the columns that are assigned that category label in the categoryKeyFileDF (and presumably the input matrix as well, now that it has been sorted)
+    # We'll use .isin(), and treat the (now sorted) categoryKeyFileDF['itemID'] content as a np.array for speed
+    boolMaskDict={}
+    # create np.array of the categoryKeyFileDF['fieldValue'] (i.e. the category labels) content
+    categoryLabelsArray=np.array(list(categoryKeyFileDF['fieldValue'].values))
+    for i in range(len(uniqueCategoryLabels)):
+        # generate bool vector corresponding to whether uniqueCategoryLabels == each element in categoryLabelsArray
+        # do this in the fastest way possible, which is to use np.char.equal, which seems to be about 50 times faster than list comprehension
+        currentBoolMask=np.char.equal(np.asarray(uniqueCategoryLabels[i]),categoryLabelsArray)
+        # add this bool mask to the dictionary
+        boolMaskDict[uniqueCategoryLabels[i]]=currentBoolMask
+
+    # now that we have done this, we should have the correct indexers for the input matrix.
+    # however to speed up the operation further, we should convert the content of the input matrix to a np.array
+    # we can do this by using the .values attribute of the input matrix
+    matrixContentAsArray=matrix.values
+    # print statement indicating that we have precomputed the indexers and created the intermediary arrays
+    print('Indexer and intermediary array creation complete, proceeding to subset-summation operation.')
+    # initiate timer for subset-summation operation
+    subsetSummationTimerStart=time.time()
+    for i in range(len(uniqueCategoryLabels)):
+        # first extract the current bool mask
+        currentBoolMask=boolMaskDict[uniqueCategoryLabels[i]]
+        # now we can use this bool mask to select the appropriate columns from the matrixContentAsArray
+        # we can then sum the columns of this submatrix to get the subset-summation for the current category label
+        if targetAxis=='columns':
+            # we use np.nansum() here to ignore NaN values
+            currentSubsetSum=np.nansum(matrixContentAsArray[:,currentBoolMask],axis=1)
+            # now we can assign this subset sum to the appropriate column of the outputDF
+            outputDF[uniqueCategoryLabels[i]]=currentSubsetSum
+        elif targetAxis=='rows':
+            # we use np.nansum() here to ignore NaN values
+            currentSubsetSum=np.nansum(matrixContentAsArray[currentBoolMask,:],axis=0)
+            # now we can assign this subset sum to the appropriate row of the outputDF
+            outputDF.loc[uniqueCategoryLabels[i]]=currentSubsetSum
+    # stop timer for subset-summation operation
+    subsetSummationTimerStop=time.time()
+    # print statement indicating that the subset-summation operation is complete
+    print('Subset-summation operation complete in ' + str(subsetSummationTimerStop-subsetSummationTimerStart) + ' seconds.')
+    # return the outputDF
+    
+    # determine the desired saving behavior, stealing this code from coOccurrenceMatrix
+    if savePath is not None:
+        # we don't need to run a check here to determine if the rows and indexes are meaningful
+        # they *have* to be, given the above algorithm
+
+        # if it's not none, then check it if is blank (''), or a specific format
+        if savePath=='':
+            # if it's blank, then they haven't provided a desired format, so we have to use a heuristic for this
+            # we'll just set an arbitrary value here, to serve as the heuristic limit
+            # in this case, what the value represents is the number of rows (or columns) that we would consider the maximum reasonable to store in a csv
+            # in essence: if there are sufficiently few values, then it's fine to store the data as an uncompressed csv.
+            # for example, a 1000 by 1000 matrix would be 1,000,000 numeric values which would be 8,000,000 bytes, or 8 MB for float 64 (or 4 MB for float 32)
+            thresholdCSV=1000
+            # also set the string for the default name
+            defaultName='categorySumMergeMatrix'
+            # if the number of rows or columns is less than the threshold, then save as a csv
+            if outputDF.shape[0]<thresholdCSV:          
+                # save the sumMergeMatrix matrix as a csv
+                outputDF.to_csv(defaultName+'.csv')
+                print('Saved sumMergeMatrix matrix as a csv to \n' + defaultName+'.csv')
+            # if the number of rows or columns is greater than the threshold, then save as an hdf5
+            else:
+                import h5py
+                # save the co-occurrence matrix as an hdf5
+                with h5py.File(defaultName+'.hdf5','w') as f:
+                    f.create_dataset('dataMatrix',data=outputDF.values,compression='gzip')
+                    f.create_dataset('rowName',data=outputDF.index,compression='gzip')
+                    f.create_dataset('colName',data=outputDF.columns,compression='gzip')
+                # now close the file
+                f.close()
+                print('Saved sumMergeMatrix matrix as an hdf5 to \n' + defaultName+'.hdf5')
+        # if it's not blank, then check if it's a csv or an hdf5
+        elif savePath.endswith('.csv'):
+            # if it's a csv, then save the co-occurrence matrix as a csv essentially the same way as above
+            outputDF.to_csv(savePath)
+            print('Saved sumMergeMatrix matrix as a csv to \n' + savePath)
+
+        elif savePath.endswith('.hdf5') or savePath.endswith('.h5') or savePath.endswith('.hdf'):
+            import h5py
+            # if it's an hdf5, then save the co-occurrence matrix as an hdf5 essentially the same way as above
+            with h5py.File(defaultName+'.hdf5','w') as f:
+                f.create_dataset('dataMatrix',data=outputDF.values,compression='gzip')
+                f.create_dataset('rowName',data=outputDF.index,compression='gzip')
+                f.create_dataset('colName',data=outputDF.columns,compression='gzip')
+                # now close the file
+                f.close()
+                print( 'Saved sumMergeMatrix matrix as an hdf5 to \n' + savePath)
+        # if it's not blank, csv, or hdf5, or None then raise an error
+        else:
+            raise ValueError('The savePath variable must be either blank (''), None, or end with ".csv" or ".hdf5"')
+
+    return outputDF
+
+def categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',savePath=''):
+    """
+    This function takes in a whole dataset matrix and a category key file, and computes the cosine distance metric between each category for the flattened
+    cosine matrix associated with each category.  The results are returned as a square matrix with the rows and columns corresponding to the categories.
+
+    Parameters
+    ----------
+    inputMatrixDF : pandas dataframe
+        A matrix of some sort, which contains numeric values.  The column labels and row indexes should correspond to the
+        identifiers of the elements of the specified axis.  They will be used to label the rows and columns of the output matrix.
+    categoryKeyFileDF : pandas dataframe
+        A dataframe containing the category key file.  This should have two columns, one containing the 'itemIDs', and the other containing the category labels as 'fieldValue'.
+    targetAxis : string
+        Either 'rows' or 'columns', depending on whether you want to compute the cosine distance between the rows or the columns of the input inputMatrixDF.
+    savePath : string
+        The path to which the results should be saved.  If left blank, the results will not be saved.
+    
+    Returns
+    -------
+    outputDF : pandas dataframe
+        A square matrix with the rows and columns corresponding to the categories.  The values are the cosine distance between the flattened cosine matrices
+        associated with each category.
+
+    """
+    import pandas as pd
+    import numpy as np
+    import scipy.spatial.distance as ssd
+
+    # obtain the list of unique category labels using set
+    uniqueCategoryLabels=list(set(categoryKeyFileDF['fieldValue']))
+    # we're going to iterate across these to create a list of flattened cosine matrices
+    # First we'll subset the input inputMatrixDF using fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract)
+    # then we'll use the cosineDistanceMatrix(inputMatrixDF,axisToCompareWithin='columns',savePath='') function to compute the cosine distance matrix for the subsetted inputMatrixDF
+    # then we'll flatten the cosine distance matrix and add it to the list
+    flattenedCosineMatrixList=[]
+    for i in range(len(uniqueCategoryLabels)):
+        # subset the inputMatrixDF using fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract)
+        currentSubsetDF=fastSubsetDF_by_categoryKeyFile(inputMatrixDF,targetAxis,categoryKeyFileDF,uniqueCategoryLabels[i])
+        # compute the cosine distance matrix for the subsetted inputMatrixDF
+        currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='columns',savePath='')
+        # flatten the cosine distance matrix and add it to the list
+        flattenedCosineMatrixList.append(currentCosineDistanceMatrix.values.flatten())
+
+    # now that we have the list of flattened cosine matrices, we can compute the cosine distance between each pair of categories
+    # we'll place the results in a numpy array
+    # first we'll create an empty numpy array of the appropriate size
+    outputArray=np.zeros((len(uniqueCategoryLabels),len(uniqueCategoryLabels)))
+    # now we'll iterate across the flattened cosine matrix list and compute the cosine distance between each pair of categories
+    for i in range(len(uniqueCategoryLabels)):
+        for j in range(len(uniqueCategoryLabels)):
+            # compute the cosine distance between the two flattened cosine matrices
+            currentCosineDistance=ssd.cosine(flattenedCosineMatrixList[i],flattenedCosineMatrixList[j])
+            # add this value to the outputArray
+            outputArray[i,j]=currentCosineDistance
+
+    # now we can convert the outputArray to a pandas dataframe, and label the rows and columns with the category labels
+    outputDF=pd.DataFrame(outputArray,index=uniqueCategoryLabels,columns=uniqueCategoryLabels)
+    return outputDF
+
+def generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100):
+    """
+    This function is used to create a set of permutated category cosine distance matrices.  Specifically, the category assignments specified in the category key file
+    are randomly permuted, and the cosine distance matrix is computed for each permutation.  The results are returned as a 3D numpy array, with the first dimension
+    corresponding to the permutation number, and the second and third dimensions corresponding to the rows and columns of the cosine distance matrix.
+
+    Parameters
+    ----------
+    inputMatrixDF : pandas dataframe
+        A matrix of some sort, which contains numeric values.  The column labels and row indexes should correspond to the
+        identifiers of the elements of the specified axis.  They will be used to label the rows and columns of the output matrix.
+    categoryKeyFileDF : pandas dataframe
+        A dataframe containing the category key file.  This should have two columns, one containing the 'itemIDs', and the other containing the category labels as 'fieldValue'.
+    targetAxis : string
+        Either 'rows' or 'columns', depending on whether you want to compute the cosine distance between the rows or the columns of the input inputMatrixDF.
+    
+    Returns
+    -------
+    outputArray : numpy array
+        A 3D numpy array, with the first dimension corresponding to the permutation number, and the second and third dimensions corresponding to the rows and columns of the cosine distance matrix.
+
+    """
+    # import necessary modules
+    import pandas as pd
+    import numpy as np
+    import scipy.spatial.distance as ssd
+    import random
+
+    # create the output np array, which does not depend on the targetAxis, because the matrix generated by currentCosineDistanceMatrix
+    # will condense the specified axis of inputMatrixDF down to the unique category labels, and then compute the cosine distance matrix using the 
+    # associated values found from the off target axis (which theoretically should be small)
+    # so we'll just create the output array using the number of unique category labels
+    outputArray=np.zeros((numPermutations,len(set(categoryKeyFileDF['fieldValue'])),len(set(categoryKeyFileDF['fieldValue']))))
+
+
+    # obtain the counts for each category label
+    categoryCounts=categoryKeyFileDF['fieldValue'].value_counts()
+    # get a copied list of the category labels, which should come from categoryKeyFileDF['fieldValue']
+    categoryLabels=categoryKeyFileDF['fieldValue'].copy().tolist()
+
+    # begin the permutation loop
+    for i in range(numPermutations):
+        # shuffle the category labels of categoryKeyFileDF, as found in the `fieldValue` column
+        categoryKeyFileDF_shuffled=categoryKeyFileDF.copy()
+        # the sampling should be done such that the frequency of each category label is preserved
+        # this can be done by sampling categoryLabels without replacement, and then assigning the sampled category labels to the categoryKeyFileDF_shuffled
+        categoryKeyFileDF_shuffled['fieldValue']=random.sample(categoryLabels,len(categoryLabels))
+        # compute the cosine distance matrix for the permuted categoryKeyFileDF_shuffled using categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',savePath='')
+        currentCosineDistanceMatrix=categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF_shuffled, targetAxis=targetAxis,savePath='')
+        # add the currentCosineDistanceMatrix to the outputArray
+        outputArray[i,:,:]=currentCosineDistanceMatrix.values
+
+    return outputArray
+
+def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100):
+    """
+    This function runs a permutation test to determine whether the cosine distance between categories is significantly different than would be expected by chance.
+    Specifically, the category assignments specified in the category key file are randomly permuted, and the cosine distance matrix is computed for each permutation.
+    The cosine distance matrix for the actual category assignments is then compared to the distribution of cosine distance measures (across permutations, but within category-category pairs).
+    The resultant z-scores are returned in a correspondingly shaped pandas dataframe.
+
+    Parameters
+    ----------
+    inputMatrixDF : pandas dataframe
+        A matrix of some sort, which contains numeric values.  The column labels and row indexes should correspond to the
+        identifiers of the elements of the specified axis.  They will be used to label the rows and columns of the output matrix.
+        The category key file should contain a column, 'itemIDs', which contains axis labels that correspond to the indicated axis (via `targetAxis`) of the inputMatrixDF.
+    categoryKeyFileDF : pandas dataframe
+        A dataframe containing the category key file.  This should have two columns, one containing the 'itemIDs', and the other containing the category labels as 'fieldValue'.
+    targetAxis : string
+        Either 'rows' or 'columns', depending on whether you want to compute the cosine distance between the rows or the columns of the input inputMatrixDF.
+    numPermutations : int
+        The number of permutations to perform.
+
+    Returns
+    -------
+    outputDF : pandas dataframe
+        A pandas dataframe containing the z-scores for each category-category pair.
+    
+    """
+    import pandas as pd
+    import numpy as np
+
+    # perform the permutation test using generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100)
+    permutationResults=generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyFileDF, targetAxis=targetAxis,numPermutations=numPermutations)
+    # compute the mean and standard deviation of the permutationResults
+    permutationMean=np.mean(permutationResults,axis=0)
+    permutationStd=np.std(permutationResults,axis=0)
+    # compute the actual cosine distance matrix using categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',savePath='')
+    # remember, it's output is a pandas dataframe
+    actualCosineDistanceMatrix=categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis=targetAxis,savePath='')
+    actualCosineResultsArray=actualCosineDistanceMatrix.values
+    # compute the z-scores using numpy functions
+    zScores=np.divide(np.subtract(actualCosineResultsArray,permutationMean),permutationStd)
+    # convert the z-scores to a pandas dataframe
+    if targetAxis=='columns':
+        outputDF=pd.DataFrame(zScores,index=actualCosineDistanceMatrix.columns,columns=actualCosineDistanceMatrix.columns)
+    elif targetAxis=='rows':
+        outputDF=pd.DataFrame(zScores,index=actualCosineDistanceMatrix.index,columns=actualCosineDistanceMatrix.index)
+
+    return outputDF
+
+
+
+    
+
+
+
 def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath=''):
     """
     This function takes in a matrix and computes the cosine distance metric for the elements of the specified axis.
@@ -1713,127 +2166,199 @@ def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath='
         # set the row and column names
         rowNames=inputMatrixDF.columns
         columnNames=inputMatrixDF.columns
+    
+    # convert the results to a pandas dataframe
+    cosineDistanceMatrix=pd.DataFrame(cosineDistanceMatrix,index=rowNames,columns=columnNames)
 
     return cosineDistanceMatrix
 
-
-
-
-
-def subsetHD5DataByKeyfile(hd5FilePathOrObject,keyFilePathOrObject,saveFilePath=None,saveFileName=None):
+def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract):
     """
-    This function uses a keyfile to select a subset of the records in an HD5 file, and then optionally saves that subset to a new HD5 file, if save path information is provided.
-    Returns the subset of data.  
+    This function takes some of the tricks learned by implementing sumMergeMatrix_byCategories_REFACTOR 
+    (e.g. pre-sorting and avoiding operating on pandas dataframes) and applies them to the task of extracting
+    a subset of a pandas dataframe based on a category key file.  The category key file is either a pandas dataframe
+    with target record IDs in the first column and category labels in the second column, or a dictionary with the
+    category labels as keys and lists of target record IDs as lists of strings.  The function will return a pandas
+    dataframe containing only the records corresponding to the target category label.
 
     Parameters
     ----------
-    hd5FilePathOrObject : string or h5py object
-        The path to the HD5 file, or the HD5 file object itself.  The HD5 file is presumed to be of the standard format produced within this toolset,
-        which means that the structure has the following data keys:
-
-        - dataMatrix : numpy array
-            The data matrix, with rows corresponding to the items and columns corresponding to the attributes.
-        - rowName : list of strings
-            The names or IDs of the items.
-        - colName : list of strings
-            The names or IDs of the attributes.
-
-        And the following attribute keys:
-        - rowDescription : string
-            A description and / or context associated with the row entries.
-        - colDescription : string
-            A description and / or context associated with the column entries.
-
-    keyFilePathOrObject : string or pandas dataframe
-        The path to the keyfile, or the keyfile object itself.  The keyfile is presumed to be a pandas dataframe with two columns.
-        The first column contains the relevant IDs or names, and the second column contains a boolean variable indicating whether the
-        corresponding entry should be included in the subset.
-
-    NOTE:  In order to determine which axis the keyfile corresponds to, this function will check for a match between the IDs in the keyfile, and the rowNames and colNames in the HD5 file.
-    If a match cannot be found, then an error will be raised.
-
-    saveFilePath : string
-        The directory path to which the subset of data should be saved.  If None, then the subset of data is not saved.
-    saveFileName : string
-        The name of the file to which the subset of data should be saved.  If None, then the subset of data is not saved.
+    inputDF : pandas dataframe
+        A pandas dataframe containing the records to be subsetted.
+    targetAxis : string
+        A string indicating whether the target records are in the rows or columns of the input dataframe.
+        Either 'rows' or 'columns'.
+    categoryKeyFile : pandas dataframe or dictionary
+        A pandas dataframe or dictionary containing the category labels and corresponding record IDs.
+    categoryToExtract : string
+        A string indicating the category label to be extracted.
 
     Returns
     -------
-    subsetData : pandas dataframe
-        The subset of data, with the same structure as the input HD5 file.    
+    outputDF : pandas dataframe
+        A pandas dataframe containing only the records corresponding to the target category label.
     """
     import pandas as pd
-    import h5py
     import numpy as np
+    import time
+    # we begin taking a great deal of content from sumMergeMatrix_byCategories_REFACTOR 
+    # and checking and parsing the input variables
 
-    # if the hd5FilePathOrObject is a string, then open the file
-    if isinstance(hd5FilePathOrObject,str):
-        hd5File=h5py.File(hd5FilePathOrObject,'r')
-    # if the hd5FilePathOrObject is an h5py object, then proceed
-    elif isinstance(hd5FilePathOrObject,h5py.File):
-        hd5File=hd5FilePathOrObject
-    # if the hd5FilePathOrObject is neither a string nor an h5py object, then raise an error
+    # check if the input matrix is a pandas dataframe
+    # if it is, then proceed
+    # if it isn't then raise an error explaning why a pandas dataframe is necessary (the column / row indexes need to be matched against the category dictionary))
+    if not isinstance(inputDF,pd.DataFrame):
+        raise ValueError('The input `inputDF` must be a pandas dataframe in order to match category indentities from `categoryKeyFile` with specific records in the matrix.')
+    # go ahead and sort the input dataframe by the target axis
+    # this will make it easier to extract the target records
+    if targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        # sort the dataframe by the index
+        inputDF=inputDF.sort_index(axis=0)
+    elif targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        # sort the dataframe by the columns
+        inputDF=inputDF.sort_index(axis=1)
     else:
-        raise ValueError('The hd5FilePathOrObject must be either a string or an appropriately formatted h5py object')
-    
-    # if the keyFilePathOrObject is a string, then open the file
-    if isinstance(keyFilePathOrObject,str):
-        keyFile=pd.read_csv(keyFilePathOrObject,header=None)
-    # if the keyFilePathOrObject is a pandas dataframe, then proceed
-    elif isinstance(keyFilePathOrObject,pd.DataFrame):
-        keyFile=keyFilePathOrObject
-    # if the keyFilePathOrObject is neither a string nor a pandas dataframe, then raise an error
-    else:
-        raise ValueError('The keyFilePathOrObject must be either a string or an appropriately formatted pandas dataframe')
-    
-    # get the domain of entries covered in the keyfile, this should be the content of the first column
-    keyFileDomain=keyFile.iloc[:,0].values
-    # get the boolean values indicating whether each entry should be included in the subset, this should be the content of the second column
-    keyFileBoolean=keyFile.iloc[:,1].values
+        # print the current value of targetAxis
+        print('The current value of `targetAxis` is: '+str(targetAxis))
+        raise ValueError('The input `targetAxis` cannot be parsed.  Please enter either "rows" or "columns".')
 
-    # get the row names from the HD5 file
-    rowNames=hd5File['rowName'].value
-    # get the column names from the HD5 file
-    colNames=hd5File['colName'].value
+    # parse the input category key file
+    # if it's a dictionary, convert it to a pandas dataframe, as we'll be creating a boolean mask of the record ID vector / axis
+    if isinstance(categoryKeyFile,dict):
+        # convert the dictionary to a pandas dataframe
+        # remember we want the record IDs to be the first column and the category labels to be the second column
+        # go ahead and create an empty target dataframe
+        categoryKeyFileDF=pd.DataFrame(columns=['itemID','fieldValue'])
+        # loop through the dictionary to create a list of record IDs and a list of the associated category label repeated for the number of record IDs for the current key
+        # the value associated with the key should already be a list
+        for iKeys in range(len(categoryKeyFile.keys())):
+            # get the current key
+            currentKey=list(categoryKeyFile.keys())[iKeys]
+            # get the current list of record IDs
+            currentRecordIDs=categoryKeyFile[currentKey]
+            # create a list of the current category label repeated for the number of record IDs
+            currentCategoryLabels=currentKey * len(currentRecordIDs)
+            # create a temporary dataframe for the current key
+            currentKeyDF=pd.DataFrame({'itemID':currentRecordIDs,'fieldValue':currentCategoryLabels})
+            # append the temporary dataframe to the target dataframe using concat
+            categoryKeyFileDF=pd.concat([categoryKeyFileDF,currentKeyDF],axis=0,ignore_index=True)
+    elif isinstance(categoryKeyFile,pd.DataFrame):
+        # if the input category key file is already a pandas dataframe, then just set the categoryKeyFileDF variable to the input category key file
+        categoryKeyFileDF=categoryKeyFile
 
-    # check if the keyfile domain is a subset of the row names
-    if np.all(np.in1d(keyFileDomain,rowNames)):
-        # if so, then the keyfile corresponds to the rows
-        keyFileAxis='rows'
-    # check if the keyfile domain is a subset of the column names
-    elif np.all(np.in1d(keyFileDomain,colNames)):
-        # if so, then the keyfile corresponds to the columns
-        keyFileAxis='columns'
-    # if the keyfile domain is not a subset of either the row names or the column names, then raise an error
-    else:
-        raise ValueError('The keyfile domain (i.e. the content of the first column of the keyfile) must be a subset of either the row names or the column names of the input HD5 file')
+    # go ahead and sort the categoryKeyFileDF by the recordID column, and then extract each column as a list (remember pandas is slow)
+    categoryKeyFileDF=categoryKeyFileDF.sort_values(by='itemID')
+
+    # NOTE:  one might think about trying to subset the categoryKeyFileDF now, so that we don't have to worry about working with records for categories we don't care about
+    # HOWEVER we want the recordIDs to be of the same length as the designated axis of the input matrix so that we can use boolean masks / indexing.
+    # this means that we need to do a check now to ensure that the labels of the target axis of inputDF are a subset of the 'recordIDs' in categoryKeyFileDF
+    # if they aren't, then raise an error, if they are, then we subset the categoryKeyFileDF contents to only those records that are in the target axis of inputDF
     
-    # in the case that the keyfile corresponds to the rows, then proceed
-    if keyFileAxis=='rows':
-        # get the indices of the keyfile domain in the row names
-        keyFileIndices=np.where(np.in1d(rowNames,keyFileDomain))[0]
-        # get the subset of row names
-        subsetRowNames=rowNames[keyFileIndices]
-        # get the subset of data
-        subsetData=hd5File['dataMatrix'][keyFileIndices,:]
-        # the colName, colDescription, and rowDescription are the same as the original HD5 file
-        subsetColName=hd5File['colName'].value
-        subsetColDescription=hd5File['colDescription'].value
-        subsetRowDescription=hd5File['rowDescription'].value
-    # in the case that the keyfile corresponds to the columns, then proceed
-    elif keyFileAxis=='columns':
-        # get the indices of the keyfile domain in the column names
-        keyFileIndices=np.where(np.in1d(colNames,keyFileDomain))[0]
-        # get the subset of column names
-        subsetColNames=colNames[keyFileIndices]
-        # get the subset of data
-        subsetData=hd5File['dataMatrix'][:,keyFileIndices]
-        # the rowName, rowDescription, and colDescription are the same as the original HD5 file
-        subsetRowName=hd5File['rowName'].value
-        subsetRowDescription=hd5File['rowDescription'].value
-        subsetColDescription=hd5File['colDescription'].value
+    if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        # get the target axis labels and treat them as a set
+        targetAxisLabels=set(inputDF.columns)
+        # get the record IDs from the categoryKeyFileDF and treat them as a set
+        recordLabelsFromCategoryFile=set(categoryKeyFileDF['itemID'].values)
+        # check if the target axis labels are a subset of the record labels
+        if not targetAxisLabels.issubset(recordLabelsFromCategoryFile):
+            # if they aren't, then raise an error
+            raise ValueError('The target axis labels of the input matrix are not a subset of the record IDs in the categoryKeyFileDF.  This means that category assignments cannot be made for all records in the input matrix.')
+        else:
+            # if they are, then subset the categoryKeyFileDF to only those records in the target axis
+            categoryKeyFileDF=categoryKeyFileDF[categoryKeyFileDF['itemID'].isin(targetAxisLabels)]
+    elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        # get the target axis labels and treat them as a set
+        targetAxisLabels=set(inputDF.index)
+        # get the record IDs from the categoryKeyFileDF and treat them as a set
+        recordLabelsFromCategoryFile=set(categoryKeyFileDF['itemID'].values)
+        # check if the target axis labels are a subset of the record labels
+        if not targetAxisLabels.issubset(recordLabelsFromCategoryFile):
+            # if they aren't, then raise an error
+            raise ValueError('The target axis labels of the input matrix are not a subset of the record IDs in the categoryKeyFileDF.  This means that category assignments cannot be made for all records in the input matrix.')
+        else:
+            # if they are, then subset the categoryKeyFileDF to only those records in the target axis
+            categoryKeyFileDF=categoryKeyFileDF[categoryKeyFileDF['itemID'].isin(targetAxisLabels)]
+  
+    # in order for the boolean mask to work, the mask must be of the same length as the axis of the input matrix
+    # as such check to ensure that the axis specified in targetAxis for the input matrix is of the same length as the number of records in the (post subset) categoryKeyFileDF
 
-    # go ahead and reform the hd5 object that will either be returned or saved
+    # check to ensure that the axis specified in targetAxis for the input matrix is of the same length as the number of records in the categoryKeyFileDF
+    # if it is, then proceed
+    if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        if len(inputDF.columns)!=len(categoryKeyFileDF['itemID']):
+            # print the lengths so the user can see what's going on
+            print('The number of columns in the input matrix is ' + str(len(inputDF.columns)) + ' and the number of records in the categoryKeyFileDF is ' + str(len(categoryKeyFileDF['itemID'])))
+            raise ValueError('The number of columns in the input matrix does not match the number of records in the categoryKeyFileDF.  This is likely due to a mismatch in the axis specified in the targetAxis variable.')
+    elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        if len(inputDF.index)!=len(categoryKeyFileDF['itemID']):
+            # print the lengths so the user can see what's going on
+            print('The number of rows in the input matrix is ' + str(len(inputDF.index)) + ' and the number of records in the categoryKeyFileDF is ' + str(len(categoryKeyFileDF['itemID'])))
+            raise ValueError('The number of rows in the input matrix does not match the number of records in the categoryKeyFileDF.  This is likely due to a mismatch in the axis specified in the targetAxis variable.')
+
+    # get the unique category labels from the categoryKeyFileDF
+    uniqueCategoryLabels=list(set(categoryKeyFileDF['fieldValue'].values))
+
+    # but also do a final check to see if categoryToExtract is actuall in the uniqueCategoryLabels
+    if categoryToExtract not in uniqueCategoryLabels:
+        # print the requested category to extract and the unique category labels
+        print('The requested category to extract, ' + str(categoryToExtract) + ', is not in the unique category labels, ' + str(uniqueCategoryLabels)) 
+        raise ValueError('The requested category to extract is not in the unique category labels.  This is likely due to a mismatch in the categoryToExtract variable and the categoryLabel variable in the categoryKeyFileDF.')
+
+    #print('Input variables have been checked and parsed, proceeding to indexer and intermediary array production.')    
+    """
+    Input variables have been checked and parsed, now we implement the subset-summation operation.
+    """
+    # print statment about precomputing and intermediary array production
+    #print('Precomputing indexers and creating intermediary arrays.')
+
+    # in sumMergeMatrix_byCategories_REFACTOR we created a dictionary of boolean masks, one for each category label, that could be used to subset the input matrix
+    # however, here we are only doing this once, so we an just create the mask now
+    # create the boolean mask for the requested category
+    # create np.array of the categoryKeyFileDF['fieldValue'] (i.e. the category labels) content
+    categoryLabelsArray=np.array(list(categoryKeyFileDF['fieldValue'].values))
+    
+    # generate bool vector corresponding to whether uniqueCategoryLabels == each element in categoryLabelsArray
+    # do this in the fastest way possible, which is to use np.char.equal, which seems to be about 50 times faster than list comprehension
+    currentBoolMask=np.char.equal(np.asarray(categoryToExtract),categoryLabelsArray)
+    
+    # convert the content of the inputDF to a numpy array
+    inputDFArray=inputDF.values
+
+    # subset the inputDFArray using the currentBoolMask
+    # this will be the intermediary array that we will use to generate the outputDF
+    if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        intermediaryArray=inputDFArray[:,currentBoolMask]
+    elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        intermediaryArray=inputDFArray[currentBoolMask,:]
+
+    # now produce the outputDF
+    # the off axis will labels simply be the same as the inputDF
+    # the on axis labels will be the subset of the categoryKeyFileDF['itemID'] that correspond to the currentBoolMask
+    if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        offAxisLabels=list(inputDF.index)
+        onAxisLabels=categoryKeyFileDF['itemID'][currentBoolMask]
+    elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        offAxisLabels=list(inputDF.columns)
+        onAxisLabels=categoryKeyFileDF['itemID'][currentBoolMask]
+
+    # create the outputDF
+    if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
+        outputDF=pd.DataFrame(intermediaryArray,columns=onAxisLabels,index=offAxisLabels)
+    elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
+        outputDF=pd.DataFrame(intermediaryArray,columns=offAxisLabels,index=onAxisLabels)
+
+    # save the output in accordance with the saveOutput variable
+
+
+    return outputDF
+
+
+
+
+
+
+
+
     
 
 

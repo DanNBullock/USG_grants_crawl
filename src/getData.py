@@ -290,6 +290,21 @@ def getDataFromRemoteSource(destination,sourceOrg):
         # if the download is not successful, return False
         else:
             return False
+        
+    elif sourceOrg=='DOE' :
+        # theoretically, all of the data should be available hereish:
+        # https://pamspublic.science.energy.gov/WebPAMSExternal/Interface/Awards/AwardSearchExternal.aspx
+        # however, I can't figure out how to download the data via anything scriptable.
+        # the best I can manage is to use the GUI to do an advanced search with the broadest possible criteria
+        # Which importantly includes setting "Award Status" to "All"
+        # and then performing the search and clicking the microscopic "Export to Excel" button in the lower right corner
+        # I've tried to inspect the dev tools interface fora hint of what calls are being made, but all I'm getting is
+        # javascript stuff (e.g. javascript:__doPostBack("ctl00$Toolbar$toolBarActions$btnAction1","Export to Excel")
+        # which I can't figure out how to use in a scriptable way.
+
+        # so throw an error
+        print('The DOE data is not currently available for scripted download.  Please navigate to \nhttps://pamspublic.science.energy.gov/WebPAMSExternal/Interface/Awards/AwardSearchExternal.aspx \nperform a search for *ALL* awards (active, expired, inactive, and closed) and click the "Export to Excel" button in the lower right corner.  Then, unzip the downloaded file and place the resulting Excel file in the directory ' + destination )
+
 
 # NOTE: here we have the functions for downloading the data from the remote sources
 

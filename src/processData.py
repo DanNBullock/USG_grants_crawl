@@ -573,6 +573,51 @@ def allXML_to_pickle(directoryPath,outFilePath):
         pickle.dump(xmlDict, handle, protocol=pickle.HIGHEST_PROTOCOL)
     return
 
+def processeDOEsourceXLStoXMLs(inputFilePath,outputDirectoryPath,imposedRootTag='rootTag'):
+    """
+    This function takes an input file path to an excel file, and converts it to a set of XML files in the output directory. 
+    The function assumes that the excel file has a column named "XML" which contains the XML data. The function also assumes that 
+    the excel file has a column named "AwardID" which contains the award ID. The function will create a new XML file for each row, 
+    and name the file with the award ID.
+
+    Parameters
+    ----------
+    inputFilePath : str
+        The path to the input excel file.
+    outputDirectoryPath : str
+        The path to the output directory.
+    imposedRootTag : str, optional
+        The root tag to impose on the XML file. The default is 'rootTag'.
+
+    Returns
+    -------
+    None.
+    
+    """
+    import pandas as pd
+    import os
+    import xmltodict
+    # read in the excel file
+    inputDF=pd.read_excel(inputFilePath)
+    # get the column headers
+    columnHeaders=inputDF.columns
+
+    # iterate across the rows and build a dictionary for each item
+    for iRow in range(inputDF.shape[0]):
+        # create an empty dictionary
+        xmlDict={}
+        # iterate across the columns
+        for iColumn in range(len(columnHeaders)):
+            # add the column name and value to the dictionary
+            xmlDict[columnHeaders[iColumn]]=inputDF.loc[iRow,columnHeaders[iColumn]]
+        # convert the dictionary to an XML string
+        xmlString=xmltodict.unparse(xmlDict,pretty=True)
+        # get the award ID
+        awardID=inputDF.loc[iRow,'Award Number']
+        # write the XML string to a file
+        with open(os.path.join(outputDirectoryPath,awardID+'.xml'),'w') as xmlFile:
+            xmlFile.write(xmlString)
+    return
 
 def reTypeGrantColumns(grantsDF):
     """

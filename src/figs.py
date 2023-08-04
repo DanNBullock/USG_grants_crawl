@@ -240,6 +240,9 @@ def insertNewlineHeuristic(fieldName,minLength=24):
     else:
         # find the indexes of the underscores in the current field name
         currentUnderscoreIndices = [j for j in range(len(fieldName)) if fieldName[j] == '_']
+        # from the outset we'll need the middle index of the field name
+        middleOfLongFieldName = int(np.floor(len(fieldName)/2))
+
         # if there's at least one underscore, then we can proceed
         if len(currentUnderscoreIndices) == 0:
             # otherwise, we need to find a workaround that allows us to split the field name into two lines in a roughly equal way
@@ -259,8 +262,7 @@ def insertNewlineHeuristic(fieldName,minLength=24):
                         capitalLetterIndicesPrecededByLowercase.append(capitalLetterIndices[j])
             # now, we have a list of all capital letter indices preceded by a lowercase letter
             # we want to find the index that is closest to the middle of the field name
-            # first, get the middle index of the field name
-            middleOfLongFieldName = int(np.floor(len(fieldName)/2))
+            
             # now, ASSUMING THAT capitalLetterIndicesPrecededByLowercase is not empty, find the difference between the middle of the field name and each of the indices in capitalLetterIndicesPrecededByLowercase
             if len(capitalLetterIndicesPrecededByLowercase) > 0:
                 # get the difference between the middle of the field name and each of the indices in capitalLetterIndicesPrecededByLowercase
