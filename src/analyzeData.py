@@ -1243,6 +1243,7 @@ def coOccurrenceMatrix(occurenceMatrix,rowsOrColumns='rows',savePath='',rowLabel
         if not dimPassCheck[1]:
             raise ValueError('The rowsOrColumns variable is set to "columns" but there are no columns with two or more values in the input matrix.  Thus, there are no co-occurrences along the specified dimension')
     """
+    import warnings
     # if the input is a pandas dataframe, then convert it to a numpy array
     if isinstance(occurenceMatrix,pd.DataFrame):
         currRowNames=occurenceMatrix.index
@@ -1891,6 +1892,178 @@ def sumMergeMatrix_byCategories_REFACTOR(matrix,categoryKeyFileDF,targetAxis='co
 
     return outputDF
 
+def categoryCoocurrenceCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',savePath=''):
+    """
+    This function takes in a whole dataset matrix and a category key file, and computes the cosine distance metric between each category for the flattened
+    cooccurrence matrix (term-term) associated with each category.  The results are returned as a square matrix with the rows and columns corresponding to the categories.
+
+    Parameters
+    ----------
+    inputMatrixDF : pandas dataframe
+        A matrix of some sort, which contains numeric values.  The column labels and row indexes should correspond to the
+        identifiers of the elements of the specified axis.  They will be used to label the rows and columns of the output matrix.
+    categoryKeyFileDF : pandas dataframe
+        A dataframe containing the category key file.  This should have two columns, one containing the 'itemIDs', and the other containing the category labels as 'fieldValue'.
+    targetAxis : string
+        Either 'rows' or 'columns', depending on whether you want to compute the cosine distance between the rows or the columns of the input inputMatrixDF.
+    savePath : string
+        The path to which the results should be saved.  If left blank, the results will not be saved.
+    
+    Returns
+    -------
+    outputDF : pandas dataframe
+        A square matrix with the rows and columns corresponding to the categories.  The values are the cosine distance between the flattened cosine matrices
+        associated with each category.
+
+    import h5py
+    import pandas as pd
+    inputMatrixDFPath= '/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/grantsGov/analyzed/thresholdedData.hd5'
+    # load it
+    loadedHDF5obj=h5py.File(inputMatrixDFPath,'r')
+    inputMatrixDF=pdDataFrameFromHF5obj(loadedHDF5obj[list(loadedHDF5obj.keys())[0]])
+    categoryKeyFileDFpath='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/grantsGov/analyzed/agencyExtract.csv'
+    categoryKeyFileDF=pd.read_csv(categoryKeyFileDFpath,dtype=str)
+    
+    """
+    import pandas as pd
+    import numpy as np
+    import scipy.spatial.distance as ssd
+    import timeit
+
+    # we're going to use timeit to time each step of this process
+
+    # obtain the list of unique category labels using set
+
+    uniqueCategoryLabels=list(set(categoryKeyFileDF['fieldValue']))
+
+    def quickMaskUpperTriangle(inputArray,includeDiagonal=True):
+        """
+        This function takes in a square matrix and returns a mask of the upper triangle of the matrix.
+        Depending on whether the includeDiagonal variable is set to True or False, the diagonal will be included or not.
+        
+        Parameters
+        ----------
+        inputArray : numpy array
+            A square matrix.
+        includeDiagonal : boolean
+            Whether or not to include the diagonal of the matrix in the mask.
+
+        Returns
+        -------
+        outputArray : numpy array
+            A boolean mask of the upper triangle of the input matrix.
+
+        Test Method
+        -----------
+        # lets test this for desired behavior
+        # create a test array of random integers
+        testArray=np.random.randint(0,10,(5,5))
+        # print the test array
+        print('testArray=\n',testArray)
+        # print the upper triangle of the test array
+        print('upper triangle of testArray=\n',quickMaskUpperTriangle(testArray,includeDiagonal=True))
+        # print the upper triangle of the test array, not including the diagonal
+        print('upper triangle of testArray, not including the diagonal=\n',quickMaskUpperTriangle(testArray,includeDiagonal=False))
+        
+
+        """
+        # get the shape of the input array
+        inputArrayShape=inputArray.shape[0]
+        # create a range of values from 0 to the shape of the input array
+        rangeArray=np.arange(inputArrayShape)
+        # create a mask of the upper triangle of the input array
+        if includeDiagonal==True:
+            mask = rangeArray[:,None] <= rangeArray
+        elif includeDiagonal==False:
+            mask = rangeArray[:,None] < rangeArray
+        # return the mask
+        return inputArray[mask]
+
+
+    # we're going to iterate across these to create a list of flattened cosine matrices
+    # First we'll subset the input inputMatrixDF using fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract)
+    # then we'll use the cosineDistanceMatrix(inputMatrixDF,axisToCompareWithin='columns',savePath='') function to compute the cosine distance matrix for the subsetted inputMatrixDF
+    # then we'll flatten the cosine distance matrix and add it to the storage array, wherein the
+    # rows correspond to the categories and the number of columns corresponds to the length of the flattened cosine distance matrix
+    # initialize an array of zeros to store the flattened cosine matrices
+    # HOWEVER, lets only do this for the upper triangle of the matrix, NOT including the diagonal itself, since the lower triangle is just the same values
+    if targetAxis=='columns':
+        # The size of the intermediary arrays is actually determined by the OFF target axis, insofar as 
+        # the targetAxis variable is indicating the axis whose elements have category memberships and should thus be subsetted
+        # as the output will actually be a square matrix with the rows and columns corresponding to the off target axis
+        # so if the targetAxis is columns, then the intermediary arrays will be rows by rows (i.e. the number of rows in the inputMatrixDF)
+        # but even here, we have redundancy, since the lower triangle of the matrix is just the same values, so all
+        # we really want is the upper triangle, WITHOUT the diagonal itself, since that's just 1's
+        # so first we compute the number of indicies in the upper triangle of the matrix (without the diagonal)
+        # do this by creating a dummy matrix of all ones of the appropriate size, and then use the quickMaskUpperTriangle function to get the upper triangle mask, and then summing the mask
+        dummyMask=np.ones((len(inputMatrixDF.index),len(inputMatrixDF.index)))
+        upperTriangleIndexCount=int(np.sum(quickMaskUpperTriangle(dummyMask,includeDiagonal=False)))
+        # then we initialize the flattenedCosineMatrixArray to be a matrix with the number of rows equal to the number of unique category labels
+        # and the number of columns equal to the number of indicies in the upper triangle of the matrix (without the diagonal)
+        flattenedCosineMatrixArray=np.zeros((len(uniqueCategoryLabels),upperTriangleIndexCount))
+    elif targetAxis=='rows':
+        dummyMask=np.ones((len(inputMatrixDF.columns),len(inputMatrixDF.columns)))
+        upperTriangleIndexCount=int(np.sum(quickMaskUpperTriangle(dummyMask,includeDiagonal=False)))
+        # then we initialize the flattenedCosineMatrixArray to be a matrix with the number of rows equal to the number of unique category labels
+        # and the number of columns equal to the number of indicies in the upper triangle of the matrix (without the diagonal)
+        flattenedCosineMatrixArray=np.zeros((len(uniqueCategoryLabels),upperTriangleIndexCount))
+
+    for i in range(len(uniqueCategoryLabels)):
+        # subset the inputMatrixDF using fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract)
+        currentSubsetDF=fastSubsetDF_by_categoryKeyFile(inputMatrixDF,targetAxis,categoryKeyFileDF,uniqueCategoryLabels[i])
+        # remember, we are trying to generate a term-term matrix, so instead of doing columns, which would be the recordIDs
+        # we want to do rows, which would be the terms
+        # if the matrix is not full of zeros, then compute the cosine distance matrix
+        if currentSubsetDF.values.any()==True:
+            if targetAxis=='columns':
+                currCooccurrenceMatrix=coOccurrenceMatrix(currentSubsetDF,rowsOrColumns='rows',savePath=None)
+                #currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='rows',savePath='')
+            elif targetAxis=='rows':
+                currCooccurrenceMatrix=coOccurrenceMatrix(currentSubsetDF,rowsOrColumns='columns',savePath=None)
+                #currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='columns',savePath='')
+            # print the shape of the currentCosineDistanceMatrix
+            # if currCooccurrenceMatrix is full of zeros, print the current category label and how many columns are in currentSubsetDF
+            # check if any on a boolean matrix returns True or False
+            # start with currCooccurrenceMatrix=np.zeros((100,100 ))
+            
+            if currCooccurrenceMatrix.any()==False:
+                print('currCooccurrenceMatrix is full of zeros for category ' + str(uniqueCategoryLabels[i]) + ' with ' + str(len(currentSubsetDF.columns)) + ' columns')   
+
+            # from this current cosine distance matrix, we want to extract the upper triangle of the matrix, excluding the diagonal
+            # we'll use the quickMaskUpperTriangle(inputArray,includeDiagonal=False) function to do this
+            # get the masked results
+            currentMaskedResults=quickMaskUpperTriangle(currCooccurrenceMatrix,includeDiagonal=False)
+            # from this, get only the non-masked values and flatten them
+            flattenedCosineMatrixArray[i,:]=currentMaskedResults
+        # otherwise, if the matrix is full of zeros, then we'll just add a row of zeros to the flattenedCosineMatrixArray
+        elif currentSubsetDF.values.any()==False:
+            flattenedCosineMatrixArray[i,:]=np.zeros((1,upperTriangleIndexCount))
+
+    # print curent status
+    print('Within-category co-occurrence matrices computed for ' + str(len(uniqueCategoryLabels)) + ' categories')
+
+
+    # now that we have the list of flattened cosine matrices, we can compute the cosine distance between each pair of categories
+    # we'll place the results in a numpy array
+    # first we'll create an empty numpy array of the appropriate size
+    outputArray=np.zeros((len(uniqueCategoryLabels),len(uniqueCategoryLabels)))
+    # now we'll iterate across the flattened cosine matrix list and compute the cosine distance between each pair of categories
+    for i in range(len(uniqueCategoryLabels)):
+        for j in range(len(uniqueCategoryLabels)):
+            # compute the cosine distance between the two flattened cosine matrices
+            #currentCosineDistance=ssd.cosine(flattenedCosineMatrixList[i],flattenedCosineMatrixList[j])
+            currentCosineDistance=fastNumbaCosinSimilarity(flattenedCosineMatrixArray[i,:],flattenedCosineMatrixArray[j,:])
+            # add this value to the outputArray
+            outputArray[i,j]=currentCosineDistance
+            # stop timer
+
+    # print curent status
+    print('Between-category cosine distance matrices computed for ' + str(len(uniqueCategoryLabels)) + ' categories')
+
+    # now we can convert the outputArray to a pandas dataframe, and label the rows and columns with the category labels
+    outputDF=pd.DataFrame(outputArray,index=uniqueCategoryLabels,columns=uniqueCategoryLabels)
+    return outputDF
+
 def categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',savePath=''):
     """
     This function takes in a whole dataset matrix and a category key file, and computes the cosine distance metric between each category for the flattened
@@ -1914,25 +2087,123 @@ def categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='c
         A square matrix with the rows and columns corresponding to the categories.  The values are the cosine distance between the flattened cosine matrices
         associated with each category.
 
+    import h5py
+    import pandas as pd
+    inputMatrixDFPath= '/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/grantsGov/analyzed/thresholdedData.hd5'
+    # load it
+    loadedHDF5obj=h5py.File(inputMatrixDFPath,'r')
+    inputMatrixDF=pdDataFrameFromHF5obj(loadedHDF5obj[list(loadedHDF5obj.keys())[0]])
+    categoryKeyFileDFpath='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/grantsGov/analyzed/agencyExtract.csv'
+    categoryKeyFileDF=pd.read_csv(categoryKeyFileDFpath,dtype=str)
+    
     """
     import pandas as pd
     import numpy as np
     import scipy.spatial.distance as ssd
+    import timeit
+
+    # we're going to use timeit to time each step of this process
 
     # obtain the list of unique category labels using set
+
     uniqueCategoryLabels=list(set(categoryKeyFileDF['fieldValue']))
+
+    def quickMaskUpperTriangle(inputArray,includeDiagonal=True):
+        """
+        This function takes in a square matrix and returns a mask of the upper triangle of the matrix.
+        Depending on whether the includeDiagonal variable is set to True or False, the diagonal will be included or not.
+        
+        Parameters
+        ----------
+        inputArray : numpy array
+            A square matrix.
+        includeDiagonal : boolean
+            Whether or not to include the diagonal of the matrix in the mask.
+
+        Returns
+        -------
+        outputArray : numpy array
+            A boolean mask of the upper triangle of the input matrix.
+
+        Test Method
+        -----------
+        # lets test this for desired behavior
+        # create a test array of random integers
+        testArray=np.random.randint(0,10,(5,5))
+        # print the test array
+        print('testArray=\n',testArray)
+        # print the upper triangle of the test array
+        print('upper triangle of testArray=\n',quickMaskUpperTriangle(testArray,includeDiagonal=True))
+        # print the upper triangle of the test array, not including the diagonal
+        print('upper triangle of testArray, not including the diagonal=\n',quickMaskUpperTriangle(testArray,includeDiagonal=False))
+        
+
+        """
+        # get the shape of the input array
+        inputArrayShape=inputArray.shape[0]
+        # create a range of values from 0 to the shape of the input array
+        rangeArray=np.arange(inputArrayShape)
+        # create a mask of the upper triangle of the input array
+        if includeDiagonal==True:
+            mask = rangeArray[:,None] <= rangeArray
+        elif includeDiagonal==False:
+            mask = rangeArray[:,None] < rangeArray
+        # return the mask
+        return inputArray[mask]
+
+
     # we're going to iterate across these to create a list of flattened cosine matrices
     # First we'll subset the input inputMatrixDF using fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract)
     # then we'll use the cosineDistanceMatrix(inputMatrixDF,axisToCompareWithin='columns',savePath='') function to compute the cosine distance matrix for the subsetted inputMatrixDF
-    # then we'll flatten the cosine distance matrix and add it to the list
-    flattenedCosineMatrixList=[]
+    # then we'll flatten the cosine distance matrix and add it to the storage array, wherein the
+    # rows correspond to the categories and the number of columns corresponds to the length of the flattened cosine distance matrix
+    # initialize an array of zeros to store the flattened cosine matrices
+    # HOWEVER, lets only do this for the upper triangle of the matrix, NOT including the diagonal itself, since the lower triangle is just the same values
+    if targetAxis=='columns':
+        # The size of the intermediary arrays is actually determined by the OFF target axis, insofar as 
+        # the targetAxis variable is indicating the axis whose elements have category memberships and should thus be subsetted
+        # as the output will actually be a square matrix with the rows and columns corresponding to the off target axis
+        # so if the targetAxis is columns, then the intermediary arrays will be rows by rows (i.e. the number of rows in the inputMatrixDF)
+        # but even here, we have redundancy, since the lower triangle of the matrix is just the same values, so all
+        # we really want is the upper triangle, WITHOUT the diagonal itself, since that's just 1's
+        # so first we compute the number of indicies in the upper triangle of the matrix (without the diagonal)
+        # do this by creating a dummy matrix of all ones of the appropriate size, and then use the quickMaskUpperTriangle function to get the upper triangle mask, and then summing the mask
+        dummyMask=np.ones((len(inputMatrixDF.index),len(inputMatrixDF.index)))
+        upperTriangleIndexCount=int(np.sum(quickMaskUpperTriangle(dummyMask,includeDiagonal=False)))
+        # then we initialize the flattenedCosineMatrixArray to be a matrix with the number of rows equal to the number of unique category labels
+        # and the number of columns equal to the number of indicies in the upper triangle of the matrix (without the diagonal)
+        flattenedCosineMatrixArray=np.zeros((len(uniqueCategoryLabels),upperTriangleIndexCount))
+    elif targetAxis=='rows':
+        dummyMask=np.ones((len(inputMatrixDF.columns),len(inputMatrixDF.columns)))
+        upperTriangleIndexCount=int(np.sum(quickMaskUpperTriangle(dummyMask,includeDiagonal=False)))
+        # then we initialize the flattenedCosineMatrixArray to be a matrix with the number of rows equal to the number of unique category labels
+        # and the number of columns equal to the number of indicies in the upper triangle of the matrix (without the diagonal)
+        flattenedCosineMatrixArray=np.zeros((len(uniqueCategoryLabels),upperTriangleIndexCount))
+
+
+
+
     for i in range(len(uniqueCategoryLabels)):
         # subset the inputMatrixDF using fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract)
         currentSubsetDF=fastSubsetDF_by_categoryKeyFile(inputMatrixDF,targetAxis,categoryKeyFileDF,uniqueCategoryLabels[i])
-        # compute the cosine distance matrix for the subsetted inputMatrixDF
-        currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='columns',savePath='')
-        # flatten the cosine distance matrix and add it to the list
-        flattenedCosineMatrixList.append(currentCosineDistanceMatrix.values.flatten())
+        # remember, we are trying to generate a term-term matrix, so instead of doing columns, which would be the recordIDs
+        # we want to do rows, which would be the terms
+        if targetAxis=='columns':
+            currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='rows',savePath='')
+        elif targetAxis=='rows':
+            currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='columns',savePath='')
+        # print the shape of the currentCosineDistanceMatrix
+
+        # from this current cosine distance matrix, we want to extract the upper triangle of the matrix, excluding the diagonal
+        # we'll use the quickMaskUpperTriangle(inputArray,includeDiagonal=False) function to do this
+        # get the masked results
+        currentMaskedResults=quickMaskUpperTriangle(currentCosineDistanceMatrix.values,includeDiagonal=False)
+        # from this, get only the non-masked values and flatten them
+        flattenedCosineMatrixArray[i,:]=currentMaskedResults
+
+    # print curent status
+    print('Within-category cosine distance matrices computed for ' + str(len(uniqueCategoryLabels)) + ' categories')
+
 
     # now that we have the list of flattened cosine matrices, we can compute the cosine distance between each pair of categories
     # we'll place the results in a numpy array
@@ -1942,15 +2213,20 @@ def categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='c
     for i in range(len(uniqueCategoryLabels)):
         for j in range(len(uniqueCategoryLabels)):
             # compute the cosine distance between the two flattened cosine matrices
-            currentCosineDistance=ssd.cosine(flattenedCosineMatrixList[i],flattenedCosineMatrixList[j])
+            #currentCosineDistance=ssd.cosine(flattenedCosineMatrixList[i],flattenedCosineMatrixList[j])
+            currentCosineDistance=fastNumbaCosinSimilarity(flattenedCosineMatrixArray[i,:],flattenedCosineMatrixArray[j,:])
             # add this value to the outputArray
             outputArray[i,j]=currentCosineDistance
+            # stop timer
+
+    # print curent status
+    print('Between-category cosine distance matrices computed for ' + str(len(uniqueCategoryLabels)) + ' categories')
 
     # now we can convert the outputArray to a pandas dataframe, and label the rows and columns with the category labels
     outputDF=pd.DataFrame(outputArray,index=uniqueCategoryLabels,columns=uniqueCategoryLabels)
     return outputDF
 
-def generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100):
+def generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100,):
     """
     This function is used to create a set of permutated category cosine distance matrices.  Specifically, the category assignments specified in the category key file
     are randomly permuted, and the cosine distance matrix is computed for each permutation.  The results are returned as a 3D numpy array, with the first dimension
@@ -1977,13 +2253,18 @@ def generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyF
     import numpy as np
     import scipy.spatial.distance as ssd
     import random
+    import sys
 
     # create the output np array, which does not depend on the targetAxis, because the matrix generated by currentCosineDistanceMatrix
     # will condense the specified axis of inputMatrixDF down to the unique category labels, and then compute the cosine distance matrix using the 
     # associated values found from the off target axis (which theoretically should be small)
     # so we'll just create the output array using the number of unique category labels
+    
+    # create a print statement to indicate the size of the array being created
+    print('Creating output array of size: '+str(numPermutations)+' x '+str(len(set(categoryKeyFileDF['fieldValue'])))+' x '+str(len(set(categoryKeyFileDF['fieldValue']))))
     outputArray=np.zeros((numPermutations,len(set(categoryKeyFileDF['fieldValue'])),len(set(categoryKeyFileDF['fieldValue']))))
-
+    # print report on the size of the array
+    print('Output array for '+ str(numPermutations)+' permutations of will be of size: '+str(sys.getsizeof(outputArray)/1000000)+' MB')
 
     # obtain the counts for each category label
     categoryCounts=categoryKeyFileDF['fieldValue'].value_counts()
@@ -1992,19 +2273,21 @@ def generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyF
 
     # begin the permutation loop
     for i in range(numPermutations):
+        # print the current permutation number and replace the previous print of the permutation number
+        print('Permutation number: '+str(i+1)+' of '+str(numPermutations))
         # shuffle the category labels of categoryKeyFileDF, as found in the `fieldValue` column
         categoryKeyFileDF_shuffled=categoryKeyFileDF.copy()
         # the sampling should be done such that the frequency of each category label is preserved
         # this can be done by sampling categoryLabels without replacement, and then assigning the sampled category labels to the categoryKeyFileDF_shuffled
         categoryKeyFileDF_shuffled['fieldValue']=random.sample(categoryLabels,len(categoryLabels))
         # compute the cosine distance matrix for the permuted categoryKeyFileDF_shuffled using categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',savePath='')
-        currentCosineDistanceMatrix=categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF_shuffled, targetAxis=targetAxis,savePath='')
+        currentCosineDistanceMatrix=categoryCoocurrenceCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF_shuffled, targetAxis=targetAxis,savePath='')
         # add the currentCosineDistanceMatrix to the outputArray
         outputArray[i,:,:]=currentCosineDistanceMatrix.values
 
     return outputArray
 
-def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100):
+def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100,zScoreSavePath='',stdSavePath=None,meanSavePath=None):
     """
     This function runs a permutation test to determine whether the cosine distance between categories is significantly different than would be expected by chance.
     Specifically, the category assignments specified in the category key file are randomly permuted, and the cosine distance matrix is computed for each permutation.
@@ -2023,6 +2306,12 @@ def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='
         Either 'rows' or 'columns', depending on whether you want to compute the cosine distance between the rows or the columns of the input inputMatrixDF.
     numPermutations : int
         The number of permutations to perform.
+    zScoreSavePath : string
+        The path to save the z-scores dataframe to. If None, then the z-scores dataframe will not be saved. If '', then the z-scores dataframe will be saved to the current working directory.
+    stdSavePath : string
+        The path to save the standard deviation dataframe to.  If None, then the standard deviation dataframe will not be saved.
+    meanSavePath : string
+        The path to save the mean dataframe to. If None, then the mean dataframe will not be saved.
 
     Returns
     -------
@@ -2035,30 +2324,129 @@ def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='
 
     # perform the permutation test using generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100)
     permutationResults=generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyFileDF, targetAxis=targetAxis,numPermutations=numPermutations)
-    # compute the mean and standard deviation of the permutationResults
+    # compute the mean and standard deviation of the permutationResults, for permutation results which are not all zero
+
+    # as a temporary debug method we will save down the permutationResults array
+    np.save('permutationResults.npy',permutationResults)
+
+    # compute the mean and standard deviations for these
     permutationMean=np.mean(permutationResults,axis=0)
     permutationStd=np.std(permutationResults,axis=0)
+
     # compute the actual cosine distance matrix using categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',savePath='')
     # remember, it's output is a pandas dataframe
-    actualCosineDistanceMatrix=categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis=targetAxis,savePath='')
+    actualCosineDistanceMatrix=categoryCoocurrenceCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis=targetAxis,savePath='')
     actualCosineResultsArray=actualCosineDistanceMatrix.values
-    # compute the z-scores using numpy functions
-    zScores=np.divide(np.subtract(actualCosineResultsArray,permutationMean),permutationStd)
+
+    # also temporarily save down the actualCosineResultsArray
+    np.save('actualCosineResultsArray.npy',actualCosineResultsArray)
+
+    # compute the z-scores using numpy functions, remember though, some of the standard deviations that were create
+    # may be zero, so we need to check for that and replace them with 1's temporarily
+    # this is because we are dividing by the standard deviation, and dividing by zero is not allowed
+    tempStd=permutationStd.copy()
+    tempStd[tempStd==0]=1
+    zScores=np.divide(np.subtract(actualCosineResultsArray,permutationMean),tempStd)
     # convert the z-scores to a pandas dataframe
     if targetAxis=='columns':
         outputDF=pd.DataFrame(zScores,index=actualCosineDistanceMatrix.columns,columns=actualCosineDistanceMatrix.columns)
+        meanDF=pd.DataFrame(permutationMean,index=actualCosineDistanceMatrix.columns,columns=actualCosineDistanceMatrix.columns)
+        stdDF=pd.DataFrame(permutationStd,index=actualCosineDistanceMatrix.columns,columns=actualCosineDistanceMatrix.columns)
     elif targetAxis=='rows':
         outputDF=pd.DataFrame(zScores,index=actualCosineDistanceMatrix.index,columns=actualCosineDistanceMatrix.index)
+        meanDF=pd.DataFrame(permutationMean,index=actualCosineDistanceMatrix.index,columns=actualCosineDistanceMatrix.index)
+        stdDF=pd.DataFrame(permutationStd,index=actualCosineDistanceMatrix.index,columns=actualCosineDistanceMatrix.index)
+
+    # save the z-scores dataframe to the specified path
+    if zScoreSavePath is not None:
+        outputDF.to_csv(zScoreSavePath)
+    # save the mean dataframe to the specified path
+    if meanSavePath is not None:
+        meanDF.to_csv(meanSavePath)
+    # save the standard deviation dataframe to the specified path
+    if stdSavePath is not None:
+        stdDF.to_csv(stdSavePath)
 
     return outputDF
 
-
-
+def assignHigherOrderCategoryToKeyFile(categoryKeyFileDF,augmentKeyfile,higherOrderColumn=0,existingCategoryColumn=1):
+    """
+    This function augments a categoryKeyFileDF, which is typically understood to have one column (the first) indicating
+    the category membership of the records, with the second column actually indicating the record IDs.  As obtained from 
+    fieldExtractAndSave of this package, the column names would be 'fieldValue' and 'itemIDs', respectively.
     
+    Parameters
+    ----------
+    categoryKeyFileDF : pandas dataframe
+        A dataframe containing the category key file.  This should have two columns, one containing the 'itemIDs', and the other containing the category labels as 'fieldValue'.
+    augmentKeyfile : pandas dataframe
+        A dataframe containing an augmentation of the category key file.  It should map the existing categories onto higher order categories.
+    higherOrderColumn : int
+        The column of the augmentKeyfile that contains the higher order category labels.
+    existingCategoryColumn : int
+        The column of the augmentKeyfile that contains the existing category labels.
+    """
 
+    import pandas as pd
+    import numpy as np
 
+    # 
 
-def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath=''):
+    # get all four columns (e.g. two from each dataframe) as arrays
+    existingCategories=np.asarray(categoryKeyFileDF.iloc[:,['fieldValue']].values)
+    existingItemIDs=np.asarray(categoryKeyFileDF.iloc[:,['itemIDs']].values)
+    higherOrderCategories=np.asarray(augmentKeyfile.iloc[:,[higherOrderColumn]].values)
+    existingCategories=np.asarray(augmentKeyfile.iloc[:,[existingCategoryColumn]].values)
+
+    # iterate across the unique values of existingCategories and obtain the indexes of existingItemIDs that
+    # correspond to each unique value, store these in a dictionary
+    # get the unique existingCategories
+    uniqueExistingCategories=np.unique(existingCategories)
+    existingCategoryIndexesDict={}
+    for i in range(len(uniqueExistingCategories)):
+        existingCategoryIndexesDict[uniqueExistingCategories[i]]=np.where(existingCategories==uniqueExistingCategories[i])[0]
+
+    # essentially do the same thing for higherOrderCategories, but this time we're storing the indexes of uniqueExistingCategories
+    # that correspond to each unique value of higherOrderCategories
+    uniqueHigherOrderCategories=np.unique(higherOrderCategories)
+    higherOrderCategoryIndexesDict={}
+    for i in range(len(uniqueHigherOrderCategories)):
+        higherOrderCategoryIndexesDict[uniqueHigherOrderCategories[i]]=np.where(higherOrderCategories==uniqueHigherOrderCategories[i])[0]
+
+    # our goal is produce an ouput df, that once more has 'fieldValue' and 'itemIDs' columns, but this time the 'fieldValue' column
+    # will contain the higher order categories, and the 'itemIDs' column will contain the itemIDs of the existing categories
+    # we'll start by creating a mapping dictionary, that iterates across higherOrderCategoryIndexesDict, obtains the categories
+    # that are associated with it, and uses these to obtain the itemIDs from existingCategoryIndexesDict
+    mappingDict={}
+    for i in range(len(uniqueHigherOrderCategories)):
+        # get the existing categories that are associated with this higher order category
+        currentExistingCategories=higherOrderCategoryIndexesDict[uniqueHigherOrderCategories[i]]
+        # iterate across these and obtain the itemIDs from existingCategoryIndexesDict
+        itemIDs=[]
+        for j in range(len(currentExistingCategories)):
+            itemIDs.append(existingCategoryIndexesDict[currentExistingCategories[j]])
+        # store these in the mappingDict
+        mappingDict[uniqueHigherOrderCategories[i]]=itemIDs
+
+    # now we can create the output dataframe
+    # start by creating two arrays to hold the values for the two columns, they should be of length equal to the number of rows in the output dataframe
+    # and of dtype object to accomidate strings
+    outDF=pd.DataFrame(columns=['fieldValue','itemIDs'])
+    # iterate across the keys of mappingDict, and use them to populate the output arrays
+    for i in range(len(mappingDict.keys())):
+        # get the higher order category
+        currentHigherOrderCategory=list(mappingDict.keys())[i]
+        # get the existing IDs associated with this
+        currentExistingIDs=mappingDict[currentHigherOrderCategory]
+        # create a list of the same length as currentExistingIDs, containing the currentHigherOrderCategory repeated
+        currentHigherOrderCategoryList=[currentHigherOrderCategory]*len(currentExistingIDs)
+        # concatenate these to the output dataframe
+        outDF=pd.concat([outDF,pd.DataFrame({'fieldValue':currentHigherOrderCategoryList,'itemIDs':currentExistingIDs})])
+    
+    # return the output dataframe
+    return outDF
+
+def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath=None, verbose=False):
     """
     This function takes in a matrix and computes the cosine distance metric for the elements of the specified axis.
     The results are returned as a square matrix with the rows and columns corresponding to the elements of the specified axis.
@@ -2075,7 +2463,9 @@ def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath='
         Either 'rows' or 'columns', depending on whether you want to compute the cosine distance between the rows or the columns of the input matrix.
     savePath : string
         The path to which the results should be saved.  If None, then the results are not saved.  If '', then the results are saved to the current directory.
-
+    verbose : boolean
+        Whether to print out information about the progress of the function.
+        
     Returns
     -------
     cosineDistanceMatrix : pandas dataframe
@@ -2087,6 +2477,7 @@ def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath='
     import scipy.spatial.distance as ssd
     import os
     import h5py
+    import timeit
 
     # check if the input matrix is a pandas dataframe and has informative row and column labels, which we will define as being strings
     # if it is, then proceed
@@ -2102,19 +2493,48 @@ def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath='
 
     # parse the case logic for rows or columns
     if axisToCompareWithin=='rows':
-        # create a list of tuples, where each tuple contains the indexes of the rows to be compared
-        comparisonIndexes=[(i,j) for i in range(inputMatrix.shape[0]) for j in range(inputMatrix.shape[0]) if i<j]
+        # use numpy.triu_indices to get the indexes of the upper triangle of the matrix,
+        # which is the set of all unique comparisons between the rows
+        comparisonIndexes=np.triu_indices(inputMatrix.shape[0],k=1)
         # initialize a list to store the results
-        cosineDistanceResults=[[] for x in range(len(comparisonIndexes))]
+        cosineDistanceResults=np.zeros(len(comparisonIndexes[0]))
         # loop through the comparison indexes and compute the cosine distance between the rows
+        # print the number of comparisons being made
+        if verbose:
+            print('Computing cosine distance between '+str(len(comparisonIndexes[0]))+' rows...')
         for iComparison in range(len(comparisonIndexes)):
+            # print the comparison being made, with the print statement replacing the previous one
             # get the current comparison indexes
-            currentComparisonIndexes=comparisonIndexes[iComparison]
-            # get the current comparison rows
-            currentComparisonRows=inputMatrix[currentComparisonIndexes,:]
-            # compute the cosine distance between the current comparison rows
-            currentCosineDistance=ssd.cosine(currentComparisonRows[0,:],currentComparisonRows[1,:])
-            # store the results
+            currentIndex1=comparisonIndexes[0][iComparison]
+            currentIndex2=comparisonIndexes[1][iComparison]
+            # if both are all zeros, then skip this comparison
+            if np.all(inputMatrix[currentIndex1,:]==0) and np.all(inputMatrix[currentIndex2,:]==0):
+                currentCosineDistance=np.nan
+            else:
+                if verbose:
+                    print('\r'+'Computing cosine distance between row '+str(currentIndex1)+' and row '+str(currentIndex2)+'...',end='')
+
+                # get the current comparison rows
+                currentComparisonRow1=inputMatrix[currentIndex1,:]
+                currentComparisonRow2=inputMatrix[currentIndex2,:]
+
+                # find the nan values in either / both of the rows
+                nanValues1=np.isnan(currentComparisonRow1)
+                nanValues2=np.isnan(currentComparisonRow2)
+                # combine these to get the indexes of the values that are not nan in either row
+                nonNanValues=np.logical_not(np.logical_or(nanValues1,nanValues2))
+                # get the non-nan values from each row
+                currentComparisonRow1=currentComparisonRow1[nonNanValues]
+                currentComparisonRow2=currentComparisonRow2[nonNanValues]
+                # if there's anything left
+                if len(currentComparisonRow1)>0:
+                    # compute the cosine distance between the current comparison rows
+                    # currentCosineDistance=ssd.cosine(currentComparisonRows[0,:],currentComparisonRows[1,:])
+                    currentCosineDistance=fastNumbaCosinSimilarity(currentComparisonRow1,currentComparisonRow2)
+                else:
+                    # otherwise, set the cosine distance to nan
+                    currentCosineDistance=np.nan
+                # store the results
             cosineDistanceResults[iComparison]=currentCosineDistance
 
         # convert the results to a square matrix
@@ -2124,7 +2544,7 @@ def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath='
             # get the current comparison indexes
             currentComparisonIndexes=comparisonIndexes[iComparison]
             # get the current comparison rows
-            currentComparisonRows=inputMatrix[currentComparisonIndexes,:]
+            # currentComparisonRows=inputMatrix[currentComparisonIndexes,:]
             # get the current cosine distance
             currentCosineDistance=cosineDistanceResults[iComparison]
             # store the results
@@ -2134,43 +2554,82 @@ def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath='
         rowNames=inputMatrixDF.index
         columnNames=inputMatrixDF.index
     elif axisToCompareWithin=='columns':
+
         # do the same thing as above, but with the columns
         # create a list of tuples, where each tuple contains the indexes of the columns to be compared
-        comparisonIndexes=[(i,j) for i in range(inputMatrix.shape[1]) for j in range(inputMatrix.shape[1]) if i<j]
+        # use numpy.triu_indices to get the indexes of the upper triangle of the matrix,
+        # which is the set of all unique comparisons between the rows
+        comparisonIndexes=np.triu_indices(inputMatrix.shape[1],k=1)
         # initialize a list to store the results
-        cosineDistanceResults=[[] for x in range(len(comparisonIndexes))]
+        cosineDistanceResults=np.zeros(len(comparisonIndexes[0]))
         # loop through the comparison indexes and compute the cosine distance between the columns
         for iComparison in range(len(comparisonIndexes)):
-            # get the current comparison indexes
-            currentComparisonIndexes=comparisonIndexes[iComparison]
-            # get the current comparison columns
-            currentComparisonColumns=inputMatrix[:,currentComparisonIndexes]
-            # compute the cosine distance between the current comparison columns
-            currentCosineDistance=ssd.cosine(currentComparisonColumns[:,0],currentComparisonColumns[:,1])
+            currentIndex1=comparisonIndexes[0][iComparison]
+            currentIndex2=comparisonIndexes[1][iComparison]
+            if verbose:
+                print('\r'+'Computing cosine distance between column '+str(currentIndex1)+' and column '+str(currentIndex2)+'...',end='')
+
+            # get the current comparison rows
+            currentComparisonColumn1=inputMatrix[currentIndex1,:]
+            currentComparisonColumn2=inputMatrix[currentIndex2,:]
+            # compute the cosine distance between the current comparison rows
+            # currentCosineDistance=ssd.cosine(currentComparisonRows[0,:],currentComparisonRows[1,:])
+            currentCosineDistance=fastNumbaCosinSimilarity(currentComparisonColumn1,currentComparisonColumn2)
             # store the results
             cosineDistanceResults[iComparison]=currentCosineDistance
         
-        # convert the results to a square matrix
-        cosineDistanceMatrix=np.zeros((inputMatrix.shape[1],inputMatrix.shape[1]))
+        # convert the results to a square matrix of the size appropriate for axisToCompareWithin
+        if axisToCompareWithin=='rows':
+            cosineDistanceMatrix=np.zeros((inputMatrix.shape[0],inputMatrix.shape[0]))
+        elif axisToCompareWithin=='columns':
+            cosineDistanceMatrix=np.zeros((inputMatrix.shape[1],inputMatrix.shape[1]))
         # loop through the comparison indexes and store the results in the appropriate location in the square matrix
         for iComparison in range(len(comparisonIndexes)):
             # get the current comparison indexes
-            currentComparisonIndexes=comparisonIndexes[iComparison]
+            currentIndex1=comparisonIndexes[0][iComparison]
+            currentIndex2=comparisonIndexes[1][iComparison]
             # get the current comparison columns
-            currentComparisonColumns=inputMatrix[:,currentComparisonIndexes]
+            # currentComparisonColumns=inputMatrix[:,currentComparisonIndexes]
             # get the current cosine distance
             currentCosineDistance=cosineDistanceResults[iComparison]
             # store the results
-            cosineDistanceMatrix[currentComparisonIndexes[0],currentComparisonIndexes[1]]=currentCosineDistance
-            cosineDistanceMatrix[currentComparisonIndexes[1],currentComparisonIndexes[0]]=currentCosineDistance
+            cosineDistanceMatrix[currentIndex1,currentIndex2]=currentCosineDistance
+            cosineDistanceMatrix[currentIndex2,currentIndex1]=currentCosineDistance
         # set the row and column names
         rowNames=inputMatrixDF.columns
         columnNames=inputMatrixDF.columns
     
     # convert the results to a pandas dataframe
     cosineDistanceMatrix=pd.DataFrame(cosineDistanceMatrix,index=rowNames,columns=columnNames)
-
     return cosineDistanceMatrix
+
+def fastNumbaCosinSimilarity(vec1,vec2):
+    """
+    The following is an implementation of cosine similarity that uses numba to speed up the computation.  From:
+    https://medium.com/analytics-vidhya/speed-up-cosine-similarity-computations-in-python-using-numba-c04bc0741750
+    
+    """
+    from numba import jit
+    from numpy import ndarray
+    from numpy import sqrt as npsqrt
+
+    @jit(nopython=True)
+    def cosine_similarity_numba(u:ndarray, v:ndarray):
+        assert(u.shape[0] == v.shape[0])
+        uv = 0
+        uu = 0
+        vv = 0
+        for i in range(u.shape[0]):
+            uv += u[i]*v[i]
+            uu += u[i]*u[i]
+            vv += v[i]*v[i]
+        cos_theta = 1
+        if uu!=0 and vv!=0:
+            cos_theta = uv/npsqrt(uu*vv)
+        return cos_theta
+    
+    return cosine_similarity_numba(vec1,vec2)
+
 
 def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract):
     """
@@ -2222,6 +2681,8 @@ def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryT
         print('The current value of `targetAxis` is: '+str(targetAxis))
         raise ValueError('The input `targetAxis` cannot be parsed.  Please enter either "rows" or "columns".')
 
+
+
     # parse the input category key file
     # if it's a dictionary, convert it to a pandas dataframe, as we'll be creating a boolean mask of the record ID vector / axis
     if isinstance(categoryKeyFile,dict):
@@ -2249,6 +2710,10 @@ def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryT
     # go ahead and sort the categoryKeyFileDF by the recordID column, and then extract each column as a list (remember pandas is slow)
     categoryKeyFileDF=categoryKeyFileDF.sort_values(by='itemID')
 
+    # for the sake of speed, we'll now extract the sorted itemIDs and fieldValues as lists
+    itemIDList=list(categoryKeyFileDF['itemID'].values)
+    fieldValueList=list(categoryKeyFileDF['fieldValue'].values)
+    
     # NOTE:  one might think about trying to subset the categoryKeyFileDF now, so that we don't have to worry about working with records for categories we don't care about
     # HOWEVER we want the recordIDs to be of the same length as the designated axis of the input matrix so that we can use boolean masks / indexing.
     # this means that we need to do a check now to ensure that the labels of the target axis of inputDF are a subset of the 'recordIDs' in categoryKeyFileDF
@@ -2258,51 +2723,87 @@ def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryT
         # get the target axis labels and treat them as a set
         targetAxisLabels=set(inputDF.columns)
         # get the record IDs from the categoryKeyFileDF and treat them as a set
-        recordLabelsFromCategoryFile=set(categoryKeyFileDF['itemID'].values)
+        recordLabelsFromCategoryFile=set(itemIDList)
         # check if the target axis labels are a subset of the record labels
         if not targetAxisLabels.issubset(recordLabelsFromCategoryFile):
             # if they aren't, then raise an error
             raise ValueError('The target axis labels of the input matrix are not a subset of the record IDs in the categoryKeyFileDF.  This means that category assignments cannot be made for all records in the input matrix.')
         else:
-            # if they are, then subset the categoryKeyFileDF to only those records in the target axis
-            categoryKeyFileDF=categoryKeyFileDF[categoryKeyFileDF['itemID'].isin(targetAxisLabels)]
+            # if they are a subset, then we know that we have all of our records in the categoryKeyFileDF, but we may have more records than we need
+            # such that the indexes of the inputDF are a subset of the recordIDs in the categoryKeyFileDF.
+            # thus, in order to be able to use boolean masks, we need to subset the categoryKeyFileDF to only those records that are in the target axis of inputDF
+            # we can do this by identifying the set difference between the targetAxisLabels and the recordLabelsFromCategoryFile
+            # and then removing those records from the subset lists we created above
+            # get the set difference between the targetAxisLabels and the recordLabelsFromCategoryFile
+            setDifference=recordLabelsFromCategoryFile.difference(targetAxisLabels)
+            # get the indexes of the set difference in a fast manner using numpy
+            setDifferenceIndexes=np.where(np.isin(itemIDList,list(setDifference)))
+            # create a temporary boolean vector mask that is of the appropriate length, with falses in the set difference indexes
+            tempBooleanMask=np.ones(len(itemIDList),dtype=bool)
+            tempBooleanMask[setDifferenceIndexes]=False
+            # subset the itemIDList and fieldValueList to only those records that are in the target axis of inputDF
+
+            # NOTE: after much testing the following observation is rendered:
+            # indexing must be done of a like kind.  I.e. an array can only index an array, a list can only index a list, etc.
+            curSubsetItemIDList=list(np.asarray(itemIDList)[tempBooleanMask])
+            curSubsetFieldValueList=list(np.asarray(fieldValueList)[tempBooleanMask])
     elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
         # get the target axis labels and treat them as a set
         targetAxisLabels=set(inputDF.index)
         # get the record IDs from the categoryKeyFileDF and treat them as a set
-        recordLabelsFromCategoryFile=set(categoryKeyFileDF['itemID'].values)
+        recordLabelsFromCategoryFile=set(itemIDList)
         # check if the target axis labels are a subset of the record labels
         if not targetAxisLabels.issubset(recordLabelsFromCategoryFile):
             # if they aren't, then raise an error
             raise ValueError('The target axis labels of the input matrix are not a subset of the record IDs in the categoryKeyFileDF.  This means that category assignments cannot be made for all records in the input matrix.')
         else:
-            # if they are, then subset the categoryKeyFileDF to only those records in the target axis
-            categoryKeyFileDF=categoryKeyFileDF[categoryKeyFileDF['itemID'].isin(targetAxisLabels)]
-  
+            # if they are a subset, then we know that we have all of our records in the categoryKeyFileDF, but we may have more records than we need
+            # such that the indexes of the inputDF are a subset of the recordIDs in the categoryKeyFileDF.
+            # thus, in order to be able to use boolean masks, we need to subset the categoryKeyFileDF to only those records that are in the target axis of inputDF
+            # we can do this by identifying the set difference between the targetAxisLabels and the recordLabelsFromCategoryFile
+            # and then removing those records from the subset lists we created above
+            # get the set difference between the targetAxisLabels and the recordLabelsFromCategoryFile
+            setDifference=recordLabelsFromCategoryFile.difference(targetAxisLabels)
+            # get the indexes of the set difference in a fast manner using numpy
+            setDifferenceIndexes=np.where(np.isin(itemIDList,list(setDifference)))
+            # create a temporary boolean vector mask that is of the appropriate length, with falses in the set difference indexes
+            tempBooleanMask=np.ones(len(itemIDList),dtype=bool)
+            tempBooleanMask[setDifferenceIndexes]=False
+            # subset the itemIDList and fieldValueList to only those records that are in the target axis of inputDF
+            # NOTE: after much testing the following observation is rendered:
+            # indexing must be done of a like kind.  I.e. an array can only index an array, a list can only index a list, etc.
+            curSubsetItemIDList=list(np.asarray(itemIDList)[tempBooleanMask])
+            curSubsetFieldValueList=list(np.asarray(fieldValueList)[tempBooleanMask])
+
+
     # in order for the boolean mask to work, the mask must be of the same length as the axis of the input matrix
     # as such check to ensure that the axis specified in targetAxis for the input matrix is of the same length as the number of records in the (post subset) categoryKeyFileDF
 
     # check to ensure that the axis specified in targetAxis for the input matrix is of the same length as the number of records in the categoryKeyFileDF
     # if it is, then proceed
     if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
-        if len(inputDF.columns)!=len(categoryKeyFileDF['itemID']):
+        if len(inputDF.columns)!=len(curSubsetItemIDList):
             # print the lengths so the user can see what's going on
-            print('The number of columns in the input matrix is ' + str(len(inputDF.columns)) + ' and the number of records in the categoryKeyFileDF is ' + str(len(categoryKeyFileDF['itemID'])))
+            print('The number of columns in the input matrix is ' + str(len(inputDF.columns)) + ' and the number of records in the categoryKeyFileDF is ' + str(len(curSubsetItemIDList)))
             raise ValueError('The number of columns in the input matrix does not match the number of records in the categoryKeyFileDF.  This is likely due to a mismatch in the axis specified in the targetAxis variable.')
     elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
-        if len(inputDF.index)!=len(categoryKeyFileDF['itemID']):
+        if len(inputDF.index)!=len(curSubsetItemIDList):
             # print the lengths so the user can see what's going on
-            print('The number of rows in the input matrix is ' + str(len(inputDF.index)) + ' and the number of records in the categoryKeyFileDF is ' + str(len(categoryKeyFileDF['itemID'])))
+            print('The number of rows in the input matrix is ' + str(len(inputDF.index)) + ' and the number of records in the categoryKeyFileDF is ' + str(len(curSubsetItemIDList)))
             raise ValueError('The number of rows in the input matrix does not match the number of records in the categoryKeyFileDF.  This is likely due to a mismatch in the axis specified in the targetAxis variable.')
 
+
     # get the unique category labels from the categoryKeyFileDF
-    uniqueCategoryLabels=list(set(categoryKeyFileDF['fieldValue'].values))
+    uniqueCategoryLabels=list(set(curSubsetFieldValueList))
 
     # but also do a final check to see if categoryToExtract is actuall in the uniqueCategoryLabels
     if categoryToExtract not in uniqueCategoryLabels:
         # print the requested category to extract and the unique category labels
-        print('The requested category to extract, ' + str(categoryToExtract) + ', is not in the unique category labels, ' + str(uniqueCategoryLabels)) 
-        raise ValueError('The requested category to extract is not in the unique category labels.  This is likely due to a mismatch in the categoryToExtract variable and the categoryLabel variable in the categoryKeyFileDF.')
+        print('The requested category to extract, ' + str(categoryToExtract) + ', is not in the unique category labels of the entities covered in the input dictionary: ' + str(uniqueCategoryLabels))
+        print('This may be becaues the categoryToExtract is not represented in the input matrix.')
+        print('Returnining an all zeros dataframe.')
+        # return an all zeros dataframe
+        return(pd.DataFrame(np.zeros(inputDF.shape),index=inputDF.index,columns=inputDF.columns))
 
     #print('Input variables have been checked and parsed, proceeding to indexer and intermediary array production.')    
     """
@@ -2315,12 +2816,19 @@ def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryT
     # however, here we are only doing this once, so we an just create the mask now
     # create the boolean mask for the requested category
     # create np.array of the categoryKeyFileDF['fieldValue'] (i.e. the category labels) content
-    categoryLabelsArray=np.array(list(categoryKeyFileDF['fieldValue'].values))
+    categoryLabelsArray=np.array(curSubsetFieldValueList)
     
     # generate bool vector corresponding to whether uniqueCategoryLabels == each element in categoryLabelsArray
     # do this in the fastest way possible, which is to use np.char.equal, which seems to be about 50 times faster than list comprehension
+    # weirdly, we've also been getting a 'comparison of non-string arrays' error, so we'll check that both are string arrays
+    # if categoryLabelsArray.dtype=='<U1' and np.asarray(uniqueCategoryLabels).dtype=='<U1':
     currentBoolMask=np.char.equal(np.asarray(categoryToExtract),categoryLabelsArray)
-    
+    #else:
+    #    # print the dtypes and other info so the user can see what's going on
+    #    print('The categoryLabelsArray.dtype is ' + str(categoryLabelsArray.dtype) + ' and the np.asarray(uniqueCategoryLabels).dtype is ' + str(np.asarray(uniqueCategoryLabels).dtype)) 
+    #    print('The categoryLabelsArray is ' + str(categoryLabelsArray) + ' and the np.asarray(uniqueCategoryLabels) is ' + str(np.asarray(uniqueCategoryLabels)))
+    #    raise ValueError('The categoryLabelsArray.dtype and the np.asarray(uniqueCategoryLabels).dtype are not both <U1.  This is likely due to a mismatch in the categoryToExtract variable and the categoryLabel variable in the categoryKeyFileDF.')
+
     # convert the content of the inputDF to a numpy array
     inputDFArray=inputDF.values
 
@@ -2336,10 +2844,10 @@ def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryT
     # the on axis labels will be the subset of the categoryKeyFileDF['itemID'] that correspond to the currentBoolMask
     if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
         offAxisLabels=list(inputDF.index)
-        onAxisLabels=categoryKeyFileDF['itemID'][currentBoolMask]
+        onAxisLabels=list(np.asarray(curSubsetItemIDList)[currentBoolMask])
     elif targetAxis=='rows' or targetAxis==0 or targetAxis=='0':
         offAxisLabels=list(inputDF.columns)
-        onAxisLabels=categoryKeyFileDF['itemID'][currentBoolMask]
+        onAxisLabels=list(np.asarray(curSubsetItemIDList[currentBoolMask]))
 
     # create the outputDF
     if targetAxis=='columns' or targetAxis==1 or targetAxis=='1':
@@ -2348,12 +2856,47 @@ def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryT
         outputDF=pd.DataFrame(intermediaryArray,columns=offAxisLabels,index=onAxisLabels)
 
     # save the output in accordance with the saveOutput variable
-
-
     return outputDF
 
 
+def divideDFintoCategoryBasedSubsets(inputDF,categoryKeyFileDF,targetAxis='columns'):
+    """
+    The following function divides the inputDF into a dictionary of dataframes, one for each category in the categoryKeyFileDF.
+    The keys of the output dictionary are the unique values of the categories assigned in categoryKeyFileDF.
 
+    Parameters
+    ----------
+    inputDF : pandas dataframe
+        The dataframe to be divided into category-based subsets.
+    categoryKeyFileDF : pandas dataframe
+        The dataframe containing the category keys for the inputDF.  It should be expected to have the following columns:
+            itemID : string
+                The unique identifier for each row of the inputDF.
+            fieldValue : string
+                The category label for each row of the inputDF.
+    targetAxis : string
+        The axis along which the subsets will be taken.  Must be either 'columns' or 'rows'.
+
+    Returns
+    -------
+    outputDict : dictionary of pandas dataframes
+        The dictionary of dataframes, one for each category in the categoryKeyFileDF.    
+    """
+
+    # get the unique category labels from categoryKeyFileDF
+    uniqueCategoryLabels=list(categoryKeyFileDF['fieldValue'].unique())
+
+    # create the output dictionary
+    outputDict={}
+    # iterate through the unique category labels
+    for curCategoryLabel in uniqueCategoryLabels:
+        # use fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract) to subset the inputDF
+        currentSubsetDF=fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFileDF,curCategoryLabel)
+        # add the currentSubsetDF to the outputDict
+        outputDict[curCategoryLabel]=currentSubsetDF
+
+    # return the outputDict
+    return outputDict
 
 
 
@@ -3041,4 +3584,375 @@ def detectDataSourceFromSchema(testDirOrFile):
     else:    
         dataSource=None
     return dataSource
+
+def detectCommunitiesFromMatrix(inputMatrixOrDF,method='louvain',parameterSweep=True,methodParams=None):
+    """
+    This function takes in a matrix and performs community detection on the connectivity graph represented by that matrix.
+    Can handle either a numpy matrix or a pandas dataframe. Uses networkx to perform the community detection.
+
+    Inputs:
+        inputMatrixOrDF: numpy matrix or pandas dataframe
+            The matrix to be analyzed for community structure
+        method: string
+            The method to be used for community detection.  Currently only 'louvain' is supported.
+        parameterSweep: boolean
+            Whether or not to perform a paramter sweep and return the consensus community assignments from this process.
+            If false, then the methodParams are used to perform a single community detection.
+            If true, then any methodParams key value pairing with a list as a value will be swept over.  Multiple list paramter values will be swept in a combinatorial fashion.  Any methodParams key value pairing with a single value will be used for all parameter sweeps.
+            Results will be the consensus community assignments from all parameter sweeps.
+        methodParams: dictionary
+            A dictionary containing the parameters to be used for community detection.  If parameterSweep is true, then any methodParams key value pairing with a list as a value will be swept over.  Multiple list paramter values will be swept in a combinatorial fashion.  Any methodParams key value pairing with a single value will be used for all parameter sweeps.
+            Parameters should be specific to the method being used.
+
+    Outputs:
+        communities: dictionary
+            A dictionary containing the community assignments for each node in the graph
+
+    Testing:
+    import pandas as pd
+    import numpy as np
+    pathToTestInput='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NSF/analyzed/coOccurrenceMatrix.csv'
+    inputMatrixOrDF=pd.read_csv(pathToTestInput,index_col=0,header=0)
+    # to test the parameter sweep functionality, we'll test a range of resolution values for the louvain method
+    # we'll test 10 random seeds along with 20 total resolution values (10 above and 10 below the default value of 1)
+    # so create the methodParams for this
+    parameterSweep=True
+    method='louvain'
+    methodParams={'resolution': (list(np.linspace(1,30,50))+ list(np.linspace(.0001,1,50))),'seed':[None for x in range(10)]}
+    testCommunities=detectCommunitiesFromMatrix(inputMatrixOrDF,method=method,parameterSweep=parameterSweep,methodParams=methodParams)
+    agreementMatrix=agreementMatrixFromCommunityAssignments(testCommunities)
+
+    """
+    import networkx as nx
+    import numpy as np
+    import pandas as pd
+    import itertools
+
+    # first check if the input is a matrix or a dataframe
+    if type(inputMatrixOrDF)==np.ndarray:
+        # if it's an np array it's fine
+        workingMatrix=inputMatrixOrDF
+        # now check that it's square
+        if workingMatrix.shape[0]!=workingMatrix.shape[1]:
+            # throw a value error if it's not square, and report the shape
+            raise ValueError('Input matrix is not square.  Shape is '+str(workingMatrix.shape))
+        # otherwise convert the nparray to a networkx graph
+        workingGraph=nx.from_numpy_array(workingMatrix)
+    # if it's a np matrix make the same conversion
+    elif type(inputMatrixOrDF)==np.matrix:
+        workingMatrix=inputMatrixOrDF
+        if workingMatrix.shape[0]!=workingMatrix.shape[1]:
+            raise ValueError('Input matrix is not square.  Shape is '+str(workingMatrix.shape))
+        workingGraph=nx.from_numpy_matrix(workingMatrix)
+    # in the case of 
+    elif type(inputMatrixOrDF)==pd.DataFrame:
+        # if it's a dataframe, convert it to an array
+        workingMatrix=inputMatrixOrDF.values
+        # now check that it's square
+        if workingMatrix.shape[0]!=workingMatrix.shape[1]:
+            # throw a value error if it's not square, and report the shape
+            raise ValueError('Input matrix is not square.  Shape is '+str(workingMatrix.shape))
+        # otherwise convert the nparray to a networkx graph
+        workingGraph=nx.from_numpy_array(workingMatrix)
+    # Also, if it's already a networkx graph, you're fine
+    elif type(inputMatrixOrDF)==nx.classes.graph.Graph:
+        workingGraph=inputMatrixOrDF
+    else:
+        # raise a type error if it's not one of the above, indicate type and shape of input
+        raise TypeError('Input must be a numpy matrix, numpy array, pandas dataframe, or networkx graph.\n  Type is '+str(type(inputMatrixOrDF))+' and shape is '+str(inputMatrixOrDF.shape))
+
+    """
+    Here we parse the parameterSweep input and create a list of dictionaries to be used for the parameter sweep.
+    
+    """
+
+    if parameterSweep==True:
+            # if parameterSweep is true, then sweep over the parameters
+            # first, get the keys and values from the methodParams
+            methodParamKeys=list(methodParams.keys())
+            methodParamValues=list(methodParams.values())
+            # now check if any of the values are lists
+            # if they are, then create a dictionary of all possible combinations singleton values from the lists, along with the non-sweep parameters.
+            # if they are not, then there will only be one dictionary in the list
+            # create the holder for the dictionaries
+            methodParamDicts=[]
+            # create a dummy dictionary that will be used as the template for the elements of methodParamDicts
+            # it should contain all non sweep parameters, with non sweep parameters keys being paired with a placeholder None
+            dummyDict={}
+            for iKey in methodParamKeys:
+                if type(methodParams[iKey])==list:
+                    dummyDict[iKey]=None
+                else:
+                    dummyDict[iKey]=methodParams[iKey]
+
+            # quickly identify which methodParamValues are lists
+            listBoolVec=[type(i)==list for i in methodParamValues]
+            # return these as a list of int indices
+            listIndices=[i for i, x in enumerate(listBoolVec) if x]
+            # if there are any elements in listIndices then there are some parameters to sweep,
+            # and we create the parameter dictionaries accordingly
+            if len(listIndices)>0:
+                # obtain the cartesian product all list-type elements of methodParamValues
+                # the sequence of resulting tuple elements for each item in the returned cartesian product
+                # should correspond to the sequence of keys in methodParamKeys
+                for iCombinations in itertools.product(*[methodParamValues[i] for i in listIndices]):
+                    # create a copy of the dummyDict
+                    workingDict=dummyDict.copy()
+                    # now fill in the values from iCombinations
+                    for iIndex,iKey in enumerate(listIndices):
+                        workingDict[methodParamKeys[iKey]]=iCombinations[iIndex]
+                    # now append the workingDict to methodParamDicts
+                    methodParamDicts.append(workingDict)
+            # otherwise, if there are no combinations of parameters to sweep, then just append the dummyDict
+            else:
+                methodParamDicts.append(dummyDict)
+    # otherwise, if parameterSweep is false, then just append the methodParams dictionary to methodParamDicts
+    else:
+        methodParamDicts=[methodParams]
+
+    # now we have a list of dictionaries to use for the parameter sweep
+    # begin iterating over the dictionaries in methodParamDicts
+    # create a list to hold the community assignments from each parameter sweep
+    communityAssignmentsList=[]
+    for iMethodParamDict in methodParamDicts:
+        # print in place to show progress
+        print('Running parameter sweep '+str(methodParamDicts.index(iMethodParamDict)+1)+' of '+str(len(methodParamDicts)),end='\r')
+
+        # now iterate over the methodParamDicts
+        # check if the method is louvain
+        if method=='louvain':
+            # now run the community detection
+            communityAssignments=nx.community.louvain_communities(workingGraph,**iMethodParamDict)
+        else:
+            # presumably this is because we haven't yet implemented the method, so raise a not implemented error
+            raise NotImplementedError('Method '+str(method)+' not yet implemented.')
+        # now append the community assignments to the communityAssignmentsList
+        communityAssignmentsList.append(communityAssignments)
+
+
+    # now we have a list of community assignments from each parameter sweep
+    # we need to obtain the consensus community assignments
+    # first gen an agreement matrix
+    agreementMatrix=agreementMatrixFromCommunityAssignments(communityAssignmentsList)
+
+def agreementMatrixFromCommunityAssignments(communityAssignments):
+    """
+    This function takes a list of community assignments and returns the agreement matrix for those assignments.
+    The agreement matrix is a square matrix with dimensions equal to the number of nodes in the graph.
+    The value of each element in the matrix is the number of times the two nodes corresponding to the row and column indices were assigned to the same community.
+    The diagonal elements of the matrix are the number of times the node corresponding to the row and column index were assigned to the same community, which is the same as the number of times the node was assigned to any community.
+    The agreement matrix is symmetric.
+
+    Inputs:
+        communityAssignments: list
+            A list of community assignments for each node in the graph.  Each element corresponds to
+            an instance in which ALL nodes were assigned to communities.  Ergo, the length of communityAssignments
+            corresponds to the number of times the community detection algorithm was run, while each element of communityAssignments
+            should have the set of unique elements (contained within differing collections, denoting distinct communities) equal to the number of nodes in the graph.
+
+    Outputs:
+        agreementMatrix: numpy matrix
+            A square matrix with dimensions equal to the number of nodes in the graph.
+            The value of each element in the matrix is proportion of total runs in which the two nodes corresponding to the row and column indices were assigned to the same community.
+            The diagonal elements of the matrix are the number of times the node corresponding to the row and column index were assigned to the same community.
+            The agreement matrix is symmetric.
+
+    Citation Note:  Idea originally derived from:
+    bctpy.consensus_und (https://github.com/aestrivex/bctpy/blob/1b40e281eda081060707e30b68106ac1ebf54130/bct/algorithms/clustering.py#L353)
+    However, the implementation here is auto-generated from GitHub Copilot.    
+
+    Testing:
+    import random
+    # create some test data in which 10 nodes are assigned to 5 communities testIter Times
+    testIter=10
+    testCommunities=[]
+    for i in range(testIter):
+        # create a blank list for this iteration
+        currentCommunities=[ [] for i in range(5) ]
+        # fill in the currentCommunities
+        for i in range(10):
+            # generate the int index of the community to which this node is assigned
+            currentCommunityIndex=random.randint(0,4)
+            # append the node to the appropriate community
+            currentCommunities[currentCommunityIndex].append(i)
+        # now append the currentCommunities to the testCommunities
+        testCommunities.append(currentCommunities)
+    # now generate the agreement matrix
+    testAgreementMatrix=agreementMatrixFromCommunityAssignments(testCommunities)
+    """
+    import numpy as np
+    import itertools
+    
+    # first check that the input is a list
+    if type(communityAssignments)!=list:
+        # raise a type error if it's not a list
+        raise TypeError('Input communityAssignments must be a list.  Type is '+str(type(communityAssignments)))
+    # now check that the elements of the list are all the same length
+    # probably not a good idea, because some community detection algorithms may return different numbers of communities, this isn't k-means after all.
+    # if not all([len(i)==len(communityAssignments[0]) for i in communityAssignments
+    
+    # get the unique elements of each element of communityAssignments
+    uniqueElementsLists=[]
+    for iCommunityAssignments in communityAssignments:
+        # maybe it's a list of lists, maybe it's a list of tuples, maybe it's a list of sets, maybe it's a list of numpy arrays
+        # we need to be robust to all of these possibilities
+        quickListConvertCurrent=[list(i) for i in iCommunityAssignments]
+        # dissolve the list of lists into a single list
+        quickListConvertCurrent=list(itertools.chain.from_iterable(quickListConvertCurrent))
+        # now get the unique elements of quickListConvertCurrent
+        uniqueElementsLists.append(list(set(quickListConvertCurrent)))
+
+    # now check that the unique elements of each element of communityAssignments are the same
+    if not all([i==uniqueElementsLists[0] for i in uniqueElementsLists]):
+        # raise a value error if they're not all the same
+        raise ValueError('The unique elements of each element of communityAssignments are not the same.  This suggests that not all nodes were assigned to communities in each run of the community detection algorithm.')
+
+    # now we know that all nodes were assigned to communities in each run of the community detection algorithm, and we know how many total nodes there were
+    # so create a numpy array to hold the co-community assignment counts
+    agreementMatrix=np.zeros((len(uniqueElementsLists[0]),len(uniqueElementsLists[0])))
+    # now iterate over the community assignments
+    for iCommunityAssignments in communityAssignments:
+        # iterate over the elements of iCommunityAssignments
+        for iElement in iCommunityAssignments:
+            # iterate over the pairs of elements in iElement
+            for iPair in itertools.combinations(iElement,2):
+                # increment the agreementMatrix
+                agreementMatrix[iPair[0],iPair[1]]+=1
+                agreementMatrix[iPair[1],iPair[0]]+=1
+    # now divide each element of agreementMatrix by the number of runs of the community detection algorithm, which is the length of communityAssignments
+    agreementMatrixNorm=agreementMatrix/len(communityAssignments)
+    # now return the agreementMatrix
+    return agreementMatrixNorm
+
+def consensusCommunityAssignmentFromAgreementMatrix(agreementMatrix,threshold=None,nIter=30000):
+    """
+    This function takes an agreement matrix and returns a consensus community assignment.
+    It permutes possible community assignments and returns the one that maximizes the agreement matrix.
+    
+    Parameters
+    ----------
+    agreementMatrix : numpy matrix
+        A square matrix with dimensions equal to the number of nodes in the graph.
+        The value of each element in the matrix is proportion of total runs in which the two nodes corresponding to the row and column indices were assigned to the same community.
+        The diagonal elements of the matrix are the number of times the node corresponding to the row and column index were assigned to the same community.  Should be none, as nodes aren't duplicated in the same community.
+        The agreement matrix is symmetric.
+    threshold : float, optional
+        The threshold above which to consider two nodes as belonging to the same community.  The default is None.
+    nIter : int, optional
+        The number of iterations to run.  The default is 1000.
+
+    Returns
+    -------
+    consensusCommunityAssignment : list
+        A list of community assignments for each node in the graph.  Each element corresponds to
+        an instance in which ALL nodes were assigned to communities.  Ergo, the length of communityAssignments
+        corresponds to the number of times the community detection algorithm was run, while each element of communityAssignments
+        should have the set of unique elements (contained within differing collections, denoting distinct communities) equal to the number of nodes in the graph.
+    
+    """
+    import numpy as np
+    import random
+    import itertools
+    # start by creating a list of community assignments with two (or three, if rounding necessitates) members each
+    # each member of the list is a list of the nodes assigned to that community
+    # compte if the number of nodes is odd
+    if agreementMatrix.shape[0]%2==1:
+        # if the number of nodes is odd, then we need to a community with three members
+        # create a holder list of lists, wherein each list two placeholder items (None) long, except for the last list, which is three placeholder items long
+        communityAssignments=[ [None,None] for i in range(int(agreementMatrix.shape[0]/2)-1) ]+[[None,None,None]]
+        # otherwise, if the number of nodes is even
+    else:
+        # create a holder list of lists, wherein each list two placeholder items (None) long
+        communityAssignments=[ [None,None] for i in range(int(agreementMatrix.shape[0]/2)) ]
+    # now iterate over these community pairings and assign unassigned nodes to them.
+    # first identify the unassigned nodes, which are all of them to start
+    unassignedNodes=list(range(agreementMatrix.shape[0]))
+    assignedNodes=[]
+    # now iterate over the community assignments
+    for iCommunityAssignment in communityAssignments:
+        # for each element of iCommunityAssignment, assign a random unassigned node to it
+        for i in range(len(iCommunityAssignment)):
+            # randomly select an unassigned node
+            randomNode=random.choice(unassignedNodes)
+            # assign the node to the current community assignment
+            iCommunityAssignment[i]=randomNode
+            # remove the node from the unassigned nodes
+            unassignedNodes.remove(randomNode)
+            # add the node to the assigned nodes
+            assignedNodes.append(randomNode)
+
+    # for each community, compute the combinatorial probability of that particular community assignment
+    # this is the product of the probabilities of each pair of nodes being assigned to the same community
+    def computeCommunityLiklehoods(communityAssignments,weighted=True):
+        communityLikelihoods=[]
+        for iCommunityAssignment in communityAssignments:
+            # iterate over the pairs of nodes in iCommunityAssignment
+            iCommunityLikelihood=1
+            for iPair in itertools.combinations(iCommunityAssignment,2):
+                # multiply the likelihood by the probability of the nodes being assigned to the same community
+                iCommunityLikelihood*=agreementMatrix[iPair[0],iPair[1]]
+            # append the community likelihood to communityLikelihoods
+            communityLikelihoods.append(iCommunityLikelihood)
+            # if weighted==True
+            if weighted
+                    weightVector=[len(list(itertools.combinations(x,2))) for x in communityAssignments]
+                    communityLikelihoodsWeighted=np.array(communityLikelihoods)*np.array(weightVector)
+                    communityLikelihoods=communityLikelihoodsWeighted
+            
+        return communityLikelihoods
+    
+
+    for iIters in range(nIter):
+        print('Iteration '+str(iIters)+' of '+str(nIter),end='\r')
+        # compute the likelihood of each community assignment
+        communityLikelihoods=computeCommunityLiklehoods(communityAssignments)
+        # weight this by the number of pairwise combinations of nodes in each community
+
+        # identify the lowest 1/10 (or closest integer thereof) of community assignments, as defined by the 1/10 of the nodes being in the lowest likelyhood communities
+        # this 1/10 th heuristic is what we'll use for now, we'll come back with a more principled approach later
+        # these are the communities that we will dissolve, and reassign to the nodes of other communities
+        # HOWEVER, half of these dissolved communties will be reinitialized as new community pairs, and half will be added to existing community pairs
+        # start by arranging the community assignments in order of likelihood, from lowest to highest
+        communityAssignmentsOrdered=[x for _,x in sorted(zip(communityLikelihoodsWeighted,communityAssignments))]
+        # identify how many nodes need to be reassigned
+        nNodesToReassign=int(np.floor(len(communityAssignmentsOrdered)/8))
+        # find the cumulative total of nodes in the community assignments
+        cumulativeNodesInCommunityAssignments=np.cumsum([len(x) for x in communityAssignmentsOrdered])
+        # find the index of the first community assignment that has more than nNodesToReassign nodes
+        iFirstCommunityAssignmentWithMoreThanNNodesToReassign=np.where(cumulativeNodesInCommunityAssignments>nNodesToReassign)[0][0]
+        # now identify the community assignments that need to be dissolved
+        communityAssignmentsToDissolve=communityAssignmentsOrdered[:iFirstCommunityAssignmentWithMoreThanNNodesToReassign]
+        # remove these from communityAssignmentsOrdered using list comprehension
+        communityAssignmentsOrdered=[x for x in communityAssignmentsOrdered if x not in communityAssignmentsToDissolve]
+        # now take the dissolved nodes into a single list
+        dissolvedNodes=[x for y in communityAssignmentsToDissolve for x in y]
+        # create new pairings from this list until half remain
+        totalDisolveNumber=len(dissolvedNodes)
+        while len(dissolvedNodes)>totalDisolveNumber/2:
+            # randomly select two nodes from dissolvedNodes
+            randomNodes=random.sample(dissolvedNodes,2)
+            # remove these nodes from dissolvedNodes
+            dissolvedNodes=[x for x in dissolvedNodes if x not in randomNodes]
+            # add these nodes to communityAssignmentsOrdered
+            communityAssignmentsOrdered.append(randomNodes)
+        # now add the remaining nodes to existing community assignments randomly
+        for iNode in dissolvedNodes:
+            # randomly 1/3 of the community assignments, do this by randomy selecting an index from the length of communityAssignmentsOrdered
+            iRandomCommunityAssignments=random.sample(range(len(communityAssignmentsOrdered)),np.floor(len(communityAssignmentsOrdered)))
+            # copy these community lists to a new list
+            iRandomCommunityAssignmentsCopy=[communityAssignmentsOrdered[x].copy() for x in iRandomCommunityAssignments]
+            # add the node to each of the three community assignments
+            for i in range(len(iRandomCommunityAssignments)):
+                iRandomCommunityAssignmentsCopy[i].append(iNode)
+            # compute the likelihood of each of these community assignments
+            iRandomCommunityAssignmentsLikelihoods=computeCommunityLiklehoods(iRandomCommunityAssignmentsCopy)
+            # find the index of the community assignment with the highest likelihood
+            iHighestLikelihoodCommunityAssignment=np.argmax(iRandomCommunityAssignmentsLikelihoods)
+            # add the node to this community assignment
+            communityAssignmentsOrdered[iRandomCommunityAssignments[iHighestLikelihoodCommunityAssignment]].append(iNode)
+        # now reassign communityAssignmentsOrdered to communityAssignments
+        communityAssignments=communityAssignmentsOrdered
+
+
+
 

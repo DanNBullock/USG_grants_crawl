@@ -117,7 +117,7 @@ def plotNullValue_barPlot(dataCompletenessDF, logScale=None,figSize=None, fig=No
             # add minor tics at the integer values of the log scale if there are fewer than 4 orders of magnitude between the minimum and maximum values
             # add faint horizontal lines aligned with the major tics
             ax.yaxis.grid(True,which='major',linestyle='--',alpha=.5,color='cadetblue',linewidth=2)
-            if np.log10(maxVal/minVal) <= 5:
+            if np.log10(maxVal/minVal) <= 7:
                 ax.xaxis.set_minor_locator(ticker.LogLocator(base=10.0,subs=np.arange(1,10)*.1))
                 # add faint horizontal lines aligned with the minor tics
                 ax.yaxis.grid(True,which='minor',linestyle='--',alpha=.5,color='powderblue',linewidth=1)
@@ -148,6 +148,141 @@ def plotNullValue_barPlot(dataCompletenessDF, logScale=None,figSize=None, fig=No
     # TODO: implement some adaptivness here to log scale the y axis if a sufficient number of values are too small relative to the max value
     
     return fig
+
+def yearWiseTermCount_lineGraph_categorySubplots(inputDF,termsCategoryDF,awardYearKeyfileDF,figSize=(12,12),logScale=None):
+    """
+    This function creates N line graphs, one for each category in termsCategoryDF, which graphs the number of times a term hit 
+    occurs in records associated with a given award year.  The award year for a records is specified by the contents of 
+    awardYearKeyfileDF.
+    
+    Parameters
+    ----------
+    inputDF : pandas.DataFrame
+        A pandas DataFrame containing the input data to be plotted.  Columns should be itemRecords, rows should be terms.
+    termsCategoryDF : pandas.DataFrame
+        A pandas DataFrame containing the terms to be plotted, along with their categories.
+    awardYearKeyfileDF : pandas.DataFrame
+        A pandas DataFrame containing the award year for each itemRecord in inputDF.  Colums should be as standard for fieldExtractAndSave
+        which is ['itemID','fieldValue']
+    figSize : tuple
+        A tuple containing the desired figure size in inches.  Defaults to (12,12).
+    logScale : bool
+        A boolean indicating whether or not to use a log scale for the y axis.  Defaults to None, which means that the function will
+        automatically determine whether or not to use a log scale based on the range of values in the data.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+    import analyzeData
+    import pandas as pd
+
+    # here we're going to specify the colormaps that each subplot will use.  There are only so many, so hopefully
+    # there are fewer subplots than there are colormaps
+    subplotColormaps=['Blues','Greens','Reds','Purples','Oranges','YlOrBr','YlOrRd','OrRd','PuRd','RdPu','BuPu','GnBu','PuBu','YlGnBu','PuBuGn','BuGn','YlGn']
+    # remember though that these start out pretty light, so we'll need to start about 25% of the way through the colormap
+
+    # the indexes of inputDF should be terms, and the second column of termsCategoryDF should also be those same terms
+    # however we need to find the mapping of the higher order categories in the first column of termsCategoryDF to the terms in inputDF
+    # so do that now
+    # theoretically we could sort them but it probably won't matter that much
+
+    # get the terms from inputDF
+    terms = list(inputDF.index)
+    # get the terms from termsCategoryDF
+    termsCategoryDF_terms = list(termsCategoryDF.iloc[:,1])
+    # find the indexes of the rows in termsCategoryDF_terms that correspond to the terms in inputDF
+    termsCategoryDF_terms_indexes = termsCategoryDF_terms.index[termsCategoryDF_terms.isin(terms)]
+    # for each higher order category, find out which indexes of termsCategoryDF_terms_indexes
+    # get the unique higher order categories
+    higherOrderCategories = list(termsCategoryDF.iloc[:,0].unique())
+    # given that the sequence of the higher order categories is the same as the sequence of items in termsCategoryDF_terms
+    # we should be able to map termsCategoryDF_terms_indexes directly to the higher order categories
+    # so do that now
+    # create a dictionary to hold the mappings
+    higherOrderCategoryToTermsMapping = {}
+    # for each higher order category
+    for higherOrderCategory in higherOrderCategories:
+        # get the indexes of the rows in termsCategoryDF_terms_indexes that correspond to the higher order category
+        higherOrderCategoryIndexes = termsCategoryDF_terms_indexes[termsCategoryDF.iloc[termsCategoryDF_terms_indexes,0]==higherOrderCategory]
+        # get the terms associated with those indexes
+        higherOrderCategoryTerms = termsCategoryDF_terms.iloc[higherOrderCategoryIndexes]
+        # add the mapping to the dictionary
+        higherOrderCategoryToTermsMapping[higherOrderCategory] = higherOrderCategoryTerms
+
+    # let's go ahead and subset the inputDF into year based categories
+    yearsDictionary=analyzeData.divideDFintoCategoryBasedSubsets(inputDF,awardYearKeyfileDF,targetAxis='columns')
+    # this should come out with years as the keys, and dataframes as the values
+
+    # create a figure with a subplot for each higher order category
+    fig,axs = plt.subplots(len(higherOrderCategories),1,figsize=figSize,sharex=True,sharey=True)
+    # for each higher order category
+    for higherOrderCategoryIndex,higherOrderCategory in enumerate(higherOrderCategories):
+        # get the terms associated with that higher order category
+        higherOrderCategoryTerms = higherOrderCategoryToTermsMapping[higherOrderCategory]
+        # create a numpy array to hold the resultant data.  It should have as many rows as there are terms for this 
+        # category, and as many columns as there are years covered by the data
+        higherOrderCategoryTerms_yearlyCounts = np.zeros((len(higherOrderCategoryTerms),len(yearsDictionary)))
+        # iterate across the years in the yearsDictionary
+        for yearIndex,year in enumerate((yearsDictionary.keys)):
+            # extract the current data as an array
+            currentYearData = yearsDictionary[year].values
+            # subset the data to only include the terms in the current higher order category
+            # these should be indexes to the rows of the source yearsDictionary, as determined by the higherOrderCategoryTerms content
+            currentYearData = currentYearData[higherOrderCategoryTerms]
+            # sum the data along the rows to get the yearly counts for this year
+            currentYearData = np.sum(currentYearData,axis=0)
+            # add the data to the higherOrderCategoryTerms_yearlyCounts array
+            higherOrderCategoryTerms_yearlyCounts[:,yearIndex] = currentYearData
+        # now we have the data for this higher order category, so we can plot it
+        # create a dataframe for the data
+        higherOrderCategoryTerms_yearlyCountsDF = pd.DataFrame(higherOrderCategoryTerms_yearlyCounts,index=higherOrderCategoryTerms,columns=list(yearsDictionary.keys()))
+        #higherOrderCategoryTerms_yearlyCountsDF = pd.DataFrame(higherOrderCategoryTerms_yearlyCounts,index=higherOrderCategoryTerms,columns=[int(x) for x in list(yearsDictionary.keys())])
+        # plot this data, with the y value being the coutns, and the x value being the year (treated as an interval variable)
+        sns.lineplot(data=higherOrderCategoryTerms_yearlyCountsDF,ax=axs[higherOrderCategoryIndex],palette=subplotColormaps[higherOrderCategoryIndex],linewidth=2)
+        # add a legend below the plot, but of the same width as the plot mapping the colors of the lines to the categories (e.g. not the higher order categories)
+        # get the handles and labels from the plot
+        handles,labels = axs[higherOrderCategoryIndex].get_legend_handles_labels()
+        # create a new legend in the upper left, because it's safe to assume that the couts are lower early on
+        axs[higherOrderCategoryIndex].legend(handles,labels,loc='upper left',bbox_to_anchor=(0,1.02),ncol=3,borderaxespad=0,frameon=False)
+        # Set the elements of the legend to be the terms rather than their indexes
+        # get the legend
+        legend = axs[higherOrderCategoryIndex].get_legend()
+        # get the handles from the legend
+        handles = legend.legendHandles
+        # get the labels from the legend
+        labels = [x.get_text() for x in legend.texts]
+        # get the terms associated with the higher order category
+        higherOrderCategoryTerms = higherOrderCategoryToTermsMapping[higherOrderCategory]
+        # create a new list of labels
+        newLabels = []
+        # for each label
+        for label in labels:
+            # get the index of the label
+            labelIndex = labels.index(label)
+            # get the term associated with that label
+            term = higherOrderCategoryTerms[labelIndex]
+            # add the term to the new labels
+            newLabels.append(term)
+        # set the labels of the legend to be the terms
+        legend.set_labels(newLabels)
+        # set the title of the subplot to be the higher order category
+        axs[higherOrderCategoryIndex].set_title(higherOrderCategory)
+        # set the x labels of the subplot to be the years
+        axs[higherOrderCategoryIndex].set_xlabel('Year')
+        # set the y labels of the subplot to be the counts
+        axs[higherOrderCategoryIndex].set_ylabel('Term Occurrence Counts')
+
+            
+    return fig,axs
+
+
+
+    
 
 def figSizeHeuristic(longAxisItemNum,targetAxis,aspectRatio=3,heuristicFontSize = 10,heuristicFontBuffer = 2,heuristicMarginAlotment = 12):
     """
@@ -457,7 +592,7 @@ def keywordCount_barPlot(keywordCountDF,figSize=None,fig=None,ax=None,logScale=F
             # add faint horizontal lines aligned with the major tics
             ax.yaxis.grid(True,which='major',linestyle='--',alpha=.5,color='cadetblue',linewidth=2)
             # add minor tics at the integer values of the log scale if there are fewer than 4 orders of magnitude between the minimum and maximum values
-            if np.log10(maxVal/minVal) <= 5:
+            if np.log10(maxVal/minVal) <= 7:
                 ax.xaxis.set_minor_locator(ticker.LogLocator(base=10.0,subs=np.arange(1,10)*.1))
                 # add faint horizontal lines aligned with the minor tics
                 ax.yaxis.grid(True,which='minor',linestyle='--',alpha=.5,color='powderblue',linewidth=1)
