@@ -69,12 +69,31 @@ def processDownloadedData(dataLocation,sourceOrg,saveDir,singleMulti='multi'):
                     fd.write(xmltodict.unparse(fixedRecord, pretty=True))
                 # close the file
                 fd.close()
+            # HOWEVER, there are a certian number of records that are DOUBLE LISTED which have either '_Tal_Exp' or '_bk' appended to the end of the typical file ID
+            # for these records the awardID in the file does not match the file name, but the content seems basically identical, at least insofar as the abstract is concerned
+            # so lets delete these files
+            # use glob to find all of the xml files
+            xmlFiles_tal=glob(dataLocation+os.sep+'*_Tal_Exp.xml')
+            # iterate across the xml files
+            for iFiles in xmlFiles_tal:
+                # delete the file
+                os.remove(iFiles)
+            # use glob to find all of the xml files
+            xmlFiles_bk=glob(dataLocation+os.sep+'*_bk.xml')
+            # iterate across the xml files
+            for iFiles in xmlFiles_bk:
+                # delete the file
+                os.remove(iFiles)
+            processedDataDir
+
+
             # NOTE: thus the NSF data have been processed and saved down to the "processed" subdirectory of the dataLocation
             print('NSF data have been processed and saved down to ' + saveDir)
         # if the source is NIH
         elif sourceOrg=='NIH':
             # should be taken care of here
             # beyond merging the data, there is currently (as of 2023-07-07) no additional processing needed
+            processedDataDir=saveDir
             mergeNIHDataToXML(dataLocation,saveDir)
 
         # if the source is grants.gov

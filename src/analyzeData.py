@@ -1,3 +1,10 @@
+import numpy as np
+import pandas as pd
+import os
+import sys
+import itertools
+import re
+
 '''
 DEPRICATED VERSION
 
@@ -2189,15 +2196,15 @@ def categoryCosineDistanceMatrix(inputMatrixDF, categoryKeyFileDF, targetAxis='c
         # remember, we are trying to generate a term-term matrix, so instead of doing columns, which would be the recordIDs
         # we want to do rows, which would be the terms
         if targetAxis=='columns':
-            currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='rows',savePath='')
+            currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='rows')
         elif targetAxis=='rows':
-            currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='columns',savePath='')
+            currentCosineDistanceMatrix=cosineDistanceMatrix(currentSubsetDF,axisToCompareWithin='columns')
         # print the shape of the currentCosineDistanceMatrix
 
         # from this current cosine distance matrix, we want to extract the upper triangle of the matrix, excluding the diagonal
         # we'll use the quickMaskUpperTriangle(inputArray,includeDiagonal=False) function to do this
         # get the masked results
-        currentMaskedResults=quickMaskUpperTriangle(currentCosineDistanceMatrix.values,includeDiagonal=False)
+        currentMaskedResults=quickMaskUpperTriangle(currentCosineDistanceMatrix,includeDiagonal=False)
         # from this, get only the non-masked values and flatten them
         flattenedCosineMatrixArray[i,:]=currentMaskedResults
 
@@ -2445,7 +2452,7 @@ def assignHigherOrderCategoryToKeyFile(categoryKeyFileDF,augmentKeyfile,higherOr
     
     # return the output dataframe
     return outDF
-
+'''
 def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath=None, verbose=False):
     """
     This function takes in a matrix and computes the cosine distance metric for the elements of the specified axis.
@@ -2602,7 +2609,9 @@ def cosineDistanceMatrix(inputMatrixDF, axisToCompareWithin='columns',savePath=N
     # convert the results to a pandas dataframe
     cosineDistanceMatrix=pd.DataFrame(cosineDistanceMatrix,index=rowNames,columns=columnNames)
     return cosineDistanceMatrix
+'''
 
+'''
 def fastNumbaCosinSimilarity(vec1,vec2):
     """
     The following is an implementation of cosine similarity that uses numba to speed up the computation.  From:
@@ -2629,6 +2638,109 @@ def fastNumbaCosinSimilarity(vec1,vec2):
         return cos_theta
     
     return cosine_similarity_numba(vec1,vec2)
+'''
+from numba import jit
+from numpy import ndarray
+from numpy import sqrt as npsqrt
+
+@jit(nopython=True)
+def fastNumbaCosinSimilarity(u:ndarray, v:ndarray):
+    assert(u.shape[0] == v.shape[0])
+    uv = 0
+    uu = 0
+    vv = 0
+    for i in range(u.shape[0]):
+        uv += u[i]*v[i]
+        uu += u[i]*u[i]
+        vv += v[i]*v[i]
+    cos_theta = 1
+    if uu!=0 and vv!=0:
+        cos_theta = uv/npsqrt(uu*vv)
+    return cos_theta
+
+# also we define a function which applies fastNumbaCosinSimilarity to a comparison of all rows or all columns of an input matrix, resulting in a square matrix of length equal to either the rows or the columns of the input matrix
+@jit(nopython=True)
+def cosineDistanceMatrix(inputMatrix:ndarray,axisToCompareWithin:str):
+    """
+    This function applies fastNumbaCosinSimilarity to a comparison of all rows or all columns of an input matrix, resulting in a square matrix of length equal to either the rows or the columns of the input matrix.
+    
+    Parameters
+    ----------
+    inputMatrix : ndarray
+        An ndarray containing the rows or columns to be compared.
+    axisToCompareWithin : string
+        A string indicating whether the rows or the columns of the input matrix are to be compared.  Either 'rows' or 'columns'.
+
+    
+    """
+
+    # parse the case logic for rows or columns
+    if axisToCompareWithin=='rows':
+        # use numpy.triu_indices to get the indexes of the upper triangle of the matrix,
+        # which is the set of all unique comparisons between the rows
+        comparisonIndexes=np.triu_indices(inputMatrix.shape[0],k=1)
+    elif axisToCompareWithin=='columns':
+        # use numpy.triu_indices to get the indexes of the upper triangle of the matrix,
+        # which is the set of all unique comparisons between the columns
+        comparisonIndexes=np.triu_indices(inputMatrix.shape[1],k=1)
+    # initialize a list to store the results
+    cosineDistanceResults=np.zeros(len(comparisonIndexes[0]))
+        # loop through the comparison indexes and compute the cosine distance between the rows
+    for iComparison in range(len(comparisonIndexes)):
+        currentIndex1=comparisonIndexes[0][iComparison]
+        currentIndex2=comparisonIndexes[1][iComparison]
+        if axisToCompareWithin=='rows':
+            currentComparisonRow1=inputMatrix[currentIndex1,:]
+            currentComparisonRow2=inputMatrix[currentIndex2,:]
+        elif axisToCompareWithin=='columns':
+            currentComparisonRow1=inputMatrix[:,currentIndex1]
+            currentComparisonRow2=inputMatrix[:,currentIndex2]
+
+        # find the nan values in either / both of the rows
+        nanValues1=np.isnan(currentComparisonRow1)
+        nanValues2=np.isnan(currentComparisonRow2)
+        # combine these to get the indexes of the values that are not nan in either row
+        nonNanValues=np.logical_not(np.logical_or(nanValues1,nanValues2))
+        # get the non-nan values from each row
+        currentComparisonRow1=currentComparisonRow1[nonNanValues]
+        currentComparisonRow2=currentComparisonRow2[nonNanValues]
+        # do the same for 0 values
+        zeroValues1=currentComparisonRow1==0
+        zeroValues2=currentComparisonRow2==0
+        # combine these to get the indexes of the values that are not 0 in both rows
+        nonZeroValues=np.logical_not(np.logical_and(zeroValues1,zeroValues2))
+        # get the non-zero values from each row
+        currentComparisonRow1=currentComparisonRow1[nonZeroValues]
+        currentComparisonRow2=currentComparisonRow2[nonZeroValues]
+
+        # if there's anything left
+        if len(currentComparisonRow1)>0:
+            # compute the cosine distance between the current comparison rows
+            # currentCosineDistance=ssd.cosine(currentComparisonRows[0,:],currentComparisonRows[1,:])
+            currentCosineDistance=fastNumbaCosinSimilarity(currentComparisonRow1,currentComparisonRow2)
+        else:
+            # otherwise, set the cosine distance to nan
+            currentCosineDistance=np.nan
+        # store the results
+    cosineDistanceResults[iComparison]=currentCosineDistance
+    # convert the results to a square matrix
+    if axisToCompareWithin=='rows':
+        cosineDistanceMatrix=np.zeros((inputMatrix.shape[0],inputMatrix.shape[0]))
+    elif axisToCompareWithin=='columns':
+        cosineDistanceMatrix=np.zeros((inputMatrix.shape[1],inputMatrix.shape[1]))
+    # loop through the comparison indexes and store the results in the appropriate location in the square matrix
+    for iComparison in range(len(comparisonIndexes)):
+        # get the current comparison indexes
+        currentComparisonIndexes=comparisonIndexes[iComparison]
+        # get the current comparison rows
+        # currentComparisonRows=inputMatrix[currentComparisonIndexes,:]
+        # get the current cosine distance
+        currentCosineDistance=cosineDistanceResults[iComparison]
+        # store the results
+        cosineDistanceMatrix[currentComparisonIndexes[0],currentComparisonIndexes[1]]=currentCosineDistance
+        cosineDistanceMatrix[currentComparisonIndexes[1],currentComparisonIndexes[0]]=currentCosineDistance
+
+
 
 
 def fastSubsetDF_by_categoryKeyFile(inputDF,targetAxis,categoryKeyFile,categoryToExtract):
@@ -3613,13 +3725,18 @@ def detectCommunitiesFromMatrix(inputMatrixOrDF,method='louvain',parameterSweep=
     import numpy as np
     pathToTestInput='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NSF/analyzed/coOccurrenceMatrix.csv'
     inputMatrixOrDF=pd.read_csv(pathToTestInput,index_col=0,header=0)
+    # test the new consensus method
+    threshold=.05
+    consensuPartitionOut=consensus_partition(inputMatrixOrDF.values, threshold, num_reps=100, random_seed=None)
     # to test the parameter sweep functionality, we'll test a range of resolution values for the louvain method
     # we'll test 10 random seeds along with 20 total resolution values (10 above and 10 below the default value of 1)
     # so create the methodParams for this
     parameterSweep=True
     method='louvain'
-    methodParams={'resolution': (list(np.linspace(1,30,50))+ list(np.linspace(.0001,1,50))),'seed':[None for x in range(10)]}
+    methodParams={'resolution': (list(np.logspace(0,.1,100))+ list(np.logspace(0,-.15,100))),'seed':[None for x in range(2)]}
     testCommunities=detectCommunitiesFromMatrix(inputMatrixOrDF,method=method,parameterSweep=parameterSweep,methodParams=methodParams)
+    # just for the sake of transparency, lets compute the number of communities for each of the sweep runs
+    communityCounts=[len(x)for x in testCommunities]
     agreementMatrix=agreementMatrixFromCommunityAssignments(testCommunities)
 
     """
@@ -3627,6 +3744,7 @@ def detectCommunitiesFromMatrix(inputMatrixOrDF,method='louvain',parameterSweep=
     import numpy as np
     import pandas as pd
     import itertools
+    from tqdm import tqdm
 
     # first check if the input is a matrix or a dataframe
     if type(inputMatrixOrDF)==np.ndarray:
@@ -3714,10 +3832,7 @@ def detectCommunitiesFromMatrix(inputMatrixOrDF,method='louvain',parameterSweep=
     # begin iterating over the dictionaries in methodParamDicts
     # create a list to hold the community assignments from each parameter sweep
     communityAssignmentsList=[]
-    for iMethodParamDict in methodParamDicts:
-        # print in place to show progress
-        print('Running parameter sweep '+str(methodParamDicts.index(iMethodParamDict)+1)+' of '+str(len(methodParamDicts)),end='\r')
-
+    for iMethodParamDict in tqdm(methodParamDicts):
         # now iterate over the methodParamDicts
         # check if the method is louvain
         if method=='louvain':
@@ -3729,11 +3844,13 @@ def detectCommunitiesFromMatrix(inputMatrixOrDF,method='louvain',parameterSweep=
         # now append the community assignments to the communityAssignmentsList
         communityAssignmentsList.append(communityAssignments)
 
+    print('Parameter sweep complete.')
 
     # now we have a list of community assignments from each parameter sweep
     # we need to obtain the consensus community assignments
     # first gen an agreement matrix
-    agreementMatrix=agreementMatrixFromCommunityAssignments(communityAssignmentsList)
+    # agreementMatrix=agreementMatrixFromCommunityAssignments(communityAssignmentsList)
+    return communityAssignmentsList
 
 def agreementMatrixFromCommunityAssignments(communityAssignments):
     """
@@ -3779,52 +3896,147 @@ def agreementMatrixFromCommunityAssignments(communityAssignments):
         testCommunities.append(currentCommunities)
     # now generate the agreement matrix
     testAgreementMatrix=agreementMatrixFromCommunityAssignments(testCommunities)
+    testConsensus=consensusCommunityAssignmentFromAgreementMatrix(agreementMatrix,threshold=None,nIter=50000)
     """
     import numpy as np
     import itertools
     
     # first check that the input is a list
-    if type(communityAssignments)!=list:
+    if type(communityAssignments)==list:
         # raise a type error if it's not a list
-        raise TypeError('Input communityAssignments must be a list.  Type is '+str(type(communityAssignments)))
-    # now check that the elements of the list are all the same length
-    # probably not a good idea, because some community detection algorithms may return different numbers of communities, this isn't k-means after all.
-    # if not all([len(i)==len(communityAssignments[0]) for i in communityAssignments
-    
-    # get the unique elements of each element of communityAssignments
-    uniqueElementsLists=[]
-    for iCommunityAssignments in communityAssignments:
-        # maybe it's a list of lists, maybe it's a list of tuples, maybe it's a list of sets, maybe it's a list of numpy arrays
-        # we need to be robust to all of these possibilities
-        quickListConvertCurrent=[list(i) for i in iCommunityAssignments]
-        # dissolve the list of lists into a single list
-        quickListConvertCurrent=list(itertools.chain.from_iterable(quickListConvertCurrent))
-        # now get the unique elements of quickListConvertCurrent
-        uniqueElementsLists.append(list(set(quickListConvertCurrent)))
+        
+        # now check that the elements of the list are all the same length
+        # probably not a good idea, because some community detection algorithms may return different numbers of communities, this isn't k-means after all.
+        # if not all([len(i)==len(communityAssignments[0]) for i in communityAssignments
+        
+        # get the unique elements of each element of communityAssignments
+        uniqueElementsLists=[]
+        for iCommunityAssignments in communityAssignments:
+            # maybe it's a list of lists, maybe it's a list of tuples, maybe it's a list of sets, maybe it's a list of numpy arrays
+            # we need to be robust to all of these possibilities
+            quickListConvertCurrent=[list(i) for i in iCommunityAssignments]
+            # dissolve the list of lists into a single list
+            quickListConvertCurrent=list(itertools.chain.from_iterable(quickListConvertCurrent))
+            # now get the unique elements of quickListConvertCurrent
+            uniqueElementsLists.append(list(set(quickListConvertCurrent)))
 
-    # now check that the unique elements of each element of communityAssignments are the same
-    if not all([i==uniqueElementsLists[0] for i in uniqueElementsLists]):
-        # raise a value error if they're not all the same
-        raise ValueError('The unique elements of each element of communityAssignments are not the same.  This suggests that not all nodes were assigned to communities in each run of the community detection algorithm.')
+        # now check that the unique elements of each element of communityAssignments are the same
+        if not all([i==uniqueElementsLists[0] for i in uniqueElementsLists]):
+            # raise a value error if they're not all the same
+            raise ValueError('The unique elements of each element of communityAssignments are not the same.  This suggests that not all nodes were assigned to communities in each run of the community detection algorithm.')
 
-    # now we know that all nodes were assigned to communities in each run of the community detection algorithm, and we know how many total nodes there were
-    # so create a numpy array to hold the co-community assignment counts
-    agreementMatrix=np.zeros((len(uniqueElementsLists[0]),len(uniqueElementsLists[0])))
-    # now iterate over the community assignments
-    for iCommunityAssignments in communityAssignments:
-        # iterate over the elements of iCommunityAssignments
-        for iElement in iCommunityAssignments:
-            # iterate over the pairs of elements in iElement
-            for iPair in itertools.combinations(iElement,2):
-                # increment the agreementMatrix
-                agreementMatrix[iPair[0],iPair[1]]+=1
-                agreementMatrix[iPair[1],iPair[0]]+=1
-    # now divide each element of agreementMatrix by the number of runs of the community detection algorithm, which is the length of communityAssignments
-    agreementMatrixNorm=agreementMatrix/len(communityAssignments)
-    # now return the agreementMatrix
+        # now we know that all nodes were assigned to communities in each run of the community detection algorithm, and we know how many total nodes there were
+        # so create a numpy array to hold the co-community assignment counts
+        agreementMatrix=np.zeros((len(uniqueElementsLists[0]),len(uniqueElementsLists[0])))
+        # now iterate over the community assignments
+        for iCommunityAssignments in communityAssignments:
+            # iterate over the elements of iCommunityAssignments
+            for iElement in iCommunityAssignments:
+                # iterate over the pairs of elements in iElement
+                for iPair in itertools.combinations(iElement,2):
+                    # increment the agreementMatrix
+                    agreementMatrix[iPair[0],iPair[1]]+=1
+                    agreementMatrix[iPair[1],iPair[0]]+=1
+        # now divide each element of agreementMatrix by the number of runs of the community detection algorithm, which is the length of communityAssignments
+        agreementMatrixNorm=agreementMatrix/len(communityAssignments)
+        # now return the agreementMatrix
+    elif isinstance(communityAssignments,np.ndarray):
+        # if the input is a numpy array, lets assume that each row is a complete assignment of all the nodes
+        # and that the columns are the nodes.  The integer values in the array are the community assignments
+
+        # sp first create an array to store the results in, it should have the same size as the number of columns in the communityAssignments
+        agreementMatrix=np.zeros((communityAssignments.shape[1],communityAssignments.shape[1]))
+        # now iterate over the rows of communityAssignments
+        for iRow in communityAssignments:
+            # get the unique elements of iRow, which are the communities
+            uniqueElements=np.unique(iRow)
+            # now iterate over the unique elements
+            for iElement in uniqueElements:
+                # idetify the indices of iRow that are equal to iElement
+                iElementIndices=np.where(iRow==iElement)[0]
+                # now iterate over the pairs of elements in iElementIndices
+                for iPair in itertools.combinations(iElementIndices,2):
+                    # increment the agreementMatrix
+                    agreementMatrix[iPair[0],iPair[1]]+=1
+                    agreementMatrix[iPair[1],iPair[0]]+=1
+        # now divide each element of agreementMatrix by the number of runs of the community detection algorithm, which is the length of communityAssignments
+        agreementMatrixNorm=agreementMatrix/len(communityAssignments)
     return agreementMatrixNorm
 
-def consensusCommunityAssignmentFromAgreementMatrix(agreementMatrix,threshold=None,nIter=30000):
+def hierarchicalconsensusCommunityAssignmentFromAgreementMatrix(agreementMatrix,threshold=None,nIter=5000):
+    """
+    This function iterates upon consensusCommunityAssignmentFromAgreementMatrix to begin 
+    forming hierarchical community assignments--that is community assignments of community assignments.
+
+    Thus, within how this algorithm is implented, the nodes are reprsented by integers, with a list of
+    these corresponding to the community assignments of the nodes.  In turn, these lists can also be 
+    clustered, and the clusters of these lists can be clustered, and so on.  This algorithm will do so
+    in a fashion that maximizes the relationship between nodes and communities of nodes.
+
+    Parameters
+    ----------
+    agreementMatrix : numpy matrix
+        A square matrix with dimensions equal to the number of nodes in the graph.
+        The value of each element in the matrix is proportion of total runs in which the two nodes corresponding to the row and column indices were assigned to the same community.
+        The diagonal elements of the matrix are the number of times the node corresponding to the row and column index were assigned to the same community.  Should be none, as nodes aren't duplicated in the same community.
+        The agreement matrix is symmetric.
+    threshold : float, optional
+
+    
+    
+    
+    """
+
+    # begin by randomly combining t
+
+
+    # we begin by running consensusCommunityAssignmentFromAgreementMatrix to get the initial clusters
+    initialCommunities=consensusCommunityAssignmentFromAgreementMatrix
+
+    # now that we have these we need to determine which communities (as reprsented by lists of nodes)
+    # most sensibly are related
+
+def computeCommunityLiklehoods(communityAssignments,agreementMatrix,weighted=True,bias=False):
+    """
+    This function computes the likelihood of each community assignment in communityAssignments
+    given the agreementMatrix.  The likelihood is computed as the product of the probabilities
+    of the nodes in each community being assigned to the same community.
+
+    Parameters
+    ----------
+    
+    """
+
+    import itertools
+    import numpy as np
+    communityLikelihoods=[]
+    for iCommunityAssignment in communityAssignments:
+        # iterate over the pairs of nodes in iCommunityAssignment
+        iCommunityLikelihood=1
+        # assuming that there are more than two nodes in the community
+        if len(iCommunityAssignment)>=2:
+            for iPair in itertools.combinations(iCommunityAssignment,2):
+                # multiply the likelihood by the probability of the nodes being assigned to the same community
+                iCommunityLikelihood*=agreementMatrix[iPair[0],iPair[1]]
+            # append the community likelihood to communityLikelihoods
+            communityLikelihoods.append(iCommunityLikelihood)
+        # otherwise append the minimum non-zero value in agreementMatrix
+        else:
+            communityLikelihoods.append(np.min(agreementMatrix[agreementMatrix!=0]))
+        # if weighted==True
+    if weighted:
+            weightVector=[len(list(itertools.combinations(x,2))) for x in communityAssignments]
+            # now add in a bias that multiplies the likelihood by
+            if bias:
+                biasVal=1.2
+                weightVector=[(x*((biasVal**x))+(1-biasVal)) for x in weightVector]
+            communityLikelihoodsWeighted=np.array(communityLikelihoods)*np.array(weightVector)
+            communityLikelihoods=communityLikelihoodsWeighted
+        
+    return communityLikelihoods
+
+
+def consensusCommunityAssignmentFromAgreementMatrix(agreementMatrix,threshold=.05,nIter=5000):
     """
     This function takes an agreement matrix and returns a consensus community assignment.
     It permutes possible community assignments and returns the one that maximizes the agreement matrix.
@@ -3850,9 +4062,14 @@ def consensusCommunityAssignmentFromAgreementMatrix(agreementMatrix,threshold=No
         should have the set of unique elements (contained within differing collections, denoting distinct communities) equal to the number of nodes in the graph.
     
     """
+    # how many nodes to remove from communities during the erosion step
+    erosionFactor=2
+
     import numpy as np
     import random
     import itertools
+    # also import for loop reporting
+    from tqdm import tqdm
     # start by creating a list of community assignments with two (or three, if rounding necessitates) members each
     # each member of the list is a list of the nodes assigned to that community
     # compte if the number of nodes is odd
@@ -3883,76 +4100,499 @@ def consensusCommunityAssignmentFromAgreementMatrix(agreementMatrix,threshold=No
 
     # for each community, compute the combinatorial probability of that particular community assignment
     # this is the product of the probabilities of each pair of nodes being assigned to the same community
-    def computeCommunityLiklehoods(communityAssignments,weighted=True):
-        communityLikelihoods=[]
-        for iCommunityAssignment in communityAssignments:
-            # iterate over the pairs of nodes in iCommunityAssignment
-            iCommunityLikelihood=1
-            for iPair in itertools.combinations(iCommunityAssignment,2):
-                # multiply the likelihood by the probability of the nodes being assigned to the same community
-                iCommunityLikelihood*=agreementMatrix[iPair[0],iPair[1]]
-            # append the community likelihood to communityLikelihoods
-            communityLikelihoods.append(iCommunityLikelihood)
-            # if weighted==True
-            if weighted
-                    weightVector=[len(list(itertools.combinations(x,2))) for x in communityAssignments]
-                    communityLikelihoodsWeighted=np.array(communityLikelihoods)*np.array(weightVector)
-                    communityLikelihoods=communityLikelihoodsWeighted
-            
-        return communityLikelihoods
-    
 
+
+    # find the lowest non zero value in the agreement matrix
+    minAgreement=np.min(agreementMatrix[agreementMatrix!=0])
+    # if threshold is None, then set it to the minimum agreement
+    if threshold is None:
+        # actually use the average agreement from the agreement matrix
+        threshold=np.mean(agreementMatrix)
+        # threshold=minAgreement
+
+    # now iterate over the community assignments and compute the likelihood of each community assignment with tqdm
     for iIters in range(nIter):
-        print('Iteration '+str(iIters)+' of '+str(nIter),end='\r')
+        # print('Iteration '+str(iIters)+' of '+str(nIter),end='\r')
         # compute the likelihood of each community assignment
-        communityLikelihoods=computeCommunityLiklehoods(communityAssignments)
+        communityLikelihoods=computeCommunityLiklehoods(communityAssignments,agreementMatrix ,weighted=True)
         # weight this by the number of pairwise combinations of nodes in each community
+        # print the sum of the community likelihoods, in place
+        print('Sum of community likelihoods: '+str(np.sum(communityLikelihoods)),end='\r')
 
         # identify the lowest 1/10 (or closest integer thereof) of community assignments, as defined by the 1/10 of the nodes being in the lowest likelyhood communities
         # this 1/10 th heuristic is what we'll use for now, we'll come back with a more principled approach later
         # these are the communities that we will dissolve, and reassign to the nodes of other communities
         # HOWEVER, half of these dissolved communties will be reinitialized as new community pairs, and half will be added to existing community pairs
         # start by arranging the community assignments in order of likelihood, from lowest to highest
-        communityAssignmentsOrdered=[x for _,x in sorted(zip(communityLikelihoodsWeighted,communityAssignments))]
+        communityAssignmentsOrdered=[x for _,x in sorted(zip(communityLikelihoods,communityAssignments))]
+        # if it's the last run, then we want to return the community assignments
+        nodesToReassign=[0]
+        if iIters==nIter-1 or (len(nodesToReassign)==0 and all(communityLikelihoods>threshold)) :
+            print('Returning community assignments')
+            #return communityAssignmentsOrdered
         # identify how many nodes need to be reassigned
-        nNodesToReassign=int(np.floor(len(communityAssignmentsOrdered)/8))
-        # find the cumulative total of nodes in the community assignments
-        cumulativeNodesInCommunityAssignments=np.cumsum([len(x) for x in communityAssignmentsOrdered])
-        # find the index of the first community assignment that has more than nNodesToReassign nodes
-        iFirstCommunityAssignmentWithMoreThanNNodesToReassign=np.where(cumulativeNodesInCommunityAssignments>nNodesToReassign)[0][0]
-        # now identify the community assignments that need to be dissolved
-        communityAssignmentsToDissolve=communityAssignmentsOrdered[:iFirstCommunityAssignmentWithMoreThanNNodesToReassign]
-        # remove these from communityAssignmentsOrdered using list comprehension
-        communityAssignmentsOrdered=[x for x in communityAssignmentsOrdered if x not in communityAssignmentsToDissolve]
-        # now take the dissolved nodes into a single list
-        dissolvedNodes=[x for y in communityAssignmentsToDissolve for x in y]
-        # create new pairings from this list until half remain
-        totalDisolveNumber=len(dissolvedNodes)
-        while len(dissolvedNodes)>totalDisolveNumber/2:
-            # randomly select two nodes from dissolvedNodes
-            randomNodes=random.sample(dissolvedNodes,2)
-            # remove these nodes from dissolvedNodes
-            dissolvedNodes=[x for x in dissolvedNodes if x not in randomNodes]
-            # add these nodes to communityAssignmentsOrdered
-            communityAssignmentsOrdered.append(randomNodes)
-        # now add the remaining nodes to existing community assignments randomly
-        for iNode in dissolvedNodes:
-            # randomly 1/3 of the community assignments, do this by randomy selecting an index from the length of communityAssignmentsOrdered
-            iRandomCommunityAssignments=random.sample(range(len(communityAssignmentsOrdered)),np.floor(len(communityAssignmentsOrdered)))
-            # copy these community lists to a new list
-            iRandomCommunityAssignmentsCopy=[communityAssignmentsOrdered[x].copy() for x in iRandomCommunityAssignments]
-            # add the node to each of the three community assignments
-            for i in range(len(iRandomCommunityAssignments)):
-                iRandomCommunityAssignmentsCopy[i].append(iNode)
-            # compute the likelihood of each of these community assignments
-            iRandomCommunityAssignmentsLikelihoods=computeCommunityLiklehoods(iRandomCommunityAssignmentsCopy)
-            # find the index of the community assignment with the highest likelihood
-            iHighestLikelihoodCommunityAssignment=np.argmax(iRandomCommunityAssignmentsLikelihoods)
-            # add the node to this community assignment
-            communityAssignmentsOrdered[iRandomCommunityAssignments[iHighestLikelihoodCommunityAssignment]].append(iNode)
+        # nNodesToReassign=int(np.floor(len(communityAssignmentsOrdered)/6))
+
+        # find out how many nodes to reassign based on iterThresholds and propThresholds
+        # use iterThresholds to find out which iter threshold is the most recently passed
+
+        # identify the groups in communityLikelihoods that have less than the threshold likelihood
+        # these are the groups that we will dissolve
+        groupsToDissolve=np.where(communityLikelihoods<threshold)[0]
+        nodesToReassign=[]
+        for iGroups in groupsToDissolve:
+            # add the nodes in this group to the list of nodes reassign
+            nodesToReassign.extend(communityAssignmentsOrdered[iGroups])
+            # now remove these nodes from the community assignments
+        # reform the community assignments by removing the groups to dissolve
+        communityAssignmentsOrdered=[x for i,x in enumerate(communityAssignmentsOrdered) if i not in groupsToDissolve]
+        # assuming there is at least 2 community assignment available
+        if len(communityAssignmentsOrdered)>2:
+            
+            for iNode in nodesToReassign:           
+               # get the liklehood of the current community assignments
+                currentAssignmentLikelihoods=computeCommunityLiklehoods(communityAssignmentsOrdered,agreementMatrix,weighted=True)
+                # copy these community lists to a new list
+                communityAssignmentsCopy=[]
+                # add the node to each of them
+                for i in range(len(communityAssignmentsOrdered)):
+                    tempGroupAddition=communityAssignmentsOrdered[i]+[iNode]
+                    communityAssignmentsCopy.append(tempGroupAddition)
+                # compute the likelihood of each of these community assignments
+                possibleCommunityAssignmentsLikelihoods=computeCommunityLiklehoods(communityAssignmentsCopy,agreementMatrix,weighted=True)
+                # get the difference between the current assignment likelihoods and the new assignment likelihoods
+                incrementDifference=np.array(possibleCommunityAssignmentsLikelihoods)-np.array(currentAssignmentLikelihoods)
+                # find the "no chance" locations, where both the pre (currentAssignmentLikelihoods) and post (iRandomCommunityAssignmentsLikelihoods) likelihoods are equal to zero
+                noChanceLocations=np.where(np.logical_and(np.array(currentAssignmentLikelihoods)==0,np.array(possibleCommunityAssignmentsLikelihoods)==0))[0]
+                
+                
+                # find the index of the difference corresponding to the largest 
+                iHighestLikelihoodCommunityAssignment=np.argmax(incrementDifference)
+                # find the index of the community assignment with the highest likelihood
+                # iHighestLikelihoodCommunityAssignment=np.argmax(iRandomCommunityAssignmentsLikelihoods)
+                # add the node to this community assignment
+                # if the hit to the likelihood is greater than the negative of the lowest nonzero likelihood in the agreementMatrix, then just create a new singleton community with it
+                if possibleCommunityAssignmentsLikelihoods[iHighestLikelihoodCommunityAssignment]>=-threshold and iHighestLikelihoodCommunityAssignment not in noChanceLocations:
+                    
+                    communityAssignmentsOrdered[iHighestLikelihoodCommunityAssignment].append(iNode)
+                else:
+                    communityAssignmentsOrdered.append([iNode])
+        # otherwise, just randomly create groups of between 1 and 3 nodes until all of the nodesToReassign are reassigned
+        else:
+            """
+            # while there are still nodes to reassign
+            while len(nodesToReassign)>3:
+                # randomly select a number of nodes to reassign, between 1 and 3
+                iNodesToReassign=random.sample(nodesToReassign,random.choice([1,2,3]))
+                # remove these nodes from the nodesToReassign
+                for iNode in iNodesToReassign:
+                    nodesToReassign.remove(iNode)
+                # add these nodes to a new community assignment
+                communityAssignmentsOrdered.append(iNodesToReassign)
+                # if there are still nodes to reassign, create a new community with them
+            if len(nodesToReassign)>0:
+                communityAssignmentsOrdered.append(nodesToReassign)
+            """
+            pass
+
+        # if the current iteration is a multiple of 100 then we'll do a bit or erosion / shuffling
+        if iIters%100==0:
+            # iterate across the communityAssignmentsOrdered elements, and if there are more than erosionFactor * 2 elements in it, remove the 
+            # lowest performing erosionFactor elements 
+            groupsToAdd=[]
+            for i in range(len(communityAssignmentsOrdered)):
+                # if there are more than erosionFactor * 2 elements in it, remove the lowest performing erosionFactor elements
+                if len(communityAssignmentsOrdered[i])>=erosionFactor*2:
+                    # find which are the erosionFactor lowest performing elements
+                    # compute the likelihood of the current community assignments after removing each individual node
+                    # create holder for the likelihoods
+                    tempLikelihoods=np.zeros(len(communityAssignmentsOrdered[i]))
+                    for iSimulations in range(len(communityAssignmentsOrdered[i])):
+                        # create a mask of communityAssignmentsOrdered[i] with the iSimulations element removed and compute the likelihood of this
+                        tempMask=np.logical_not(np.array(communityAssignmentsOrdered[i])==communityAssignmentsOrdered[i][iSimulations])
+                        # compute the likelihood of this mask
+                        # apply the mask
+                        tempNodes=[x for i,x in enumerate(communityAssignmentsOrdered[i]) if tempMask[i]]
+                        tempLikelihoods[iSimulations]=computeCommunityLiklehoods([tempNodes],agreementMatrix,weighted=True)
+                    # find the erosionFactor lowest performing elements
+                    iLowestPerformingIndexes=np.argsort(tempLikelihoods)[0:erosionFactor]
+                    # index back into communityAssignmentsOrdered[i] to find the nodes to remove
+                    iLowestPerforming=[communityAssignmentsOrdered[i][x] for x in iLowestPerformingIndexes]
+                    # remove these elements from communityAssignmentsOrdered[i]
+                    [communityAssignmentsOrdered[i].remove(x) for x in iLowestPerforming]
+                    # create a new community with these elements and add it to groupsToAdd
+                    groupsToAdd.append(list(iLowestPerforming))
+                    
+            # add the groupsToAdd to communityAssignmentsOrdered
+            communityAssignmentsOrdered.extend(groupsToAdd)
+
         # now reassign communityAssignmentsOrdered to communityAssignments
         communityAssignments=communityAssignmentsOrdered
 
+def reorderPandasDFAxesElements(pandasDF,indexesOrder=None,columnsOrder=None):
+    """
+    Reorder the indexes and columns of a pandas dataframe according to the indexesOrder and columnsOrder
+    
+    Parameters:
+        pandasDF (pandas.DataFrame): Pandas dataframe to reorder
+        indexesOrder (list): List of int, indicating desired sequence of current indexes
+        columnsOrder (list): List of int, indicating desired sequence of current columns
+        
+    Returns:
+        pandasDF (pandas.DataFrame): Pandas dataframe with reordered indexes and columns
+    """
+    import numpy as np
+    import pandas as pd
+    # check and make sure that indexesOrder and columnsOrder are unique
+    if len(indexesOrder)!=len(set(indexesOrder)):
+        raise ValueError('indexesOrder contains duplicate elements')
+    if len(columnsOrder)!=len(set(columnsOrder)):
+        raise ValueError('columnsOrder contains duplicate elements')
+
+
+    # copy the pandasDF
+    pandasDF=pandasDF.copy()
+    # get the indexes and columns
+    indexes=list(pandasDF.index)
+    columns=list(pandasDF.columns)
+    # also get the data
+    data=pandasDF.values
+
+    # create a new ouput array that is blank
+    firstShift=np.zeros(data.shape)
+    if not type(indexesOrder)==type(None):
+        # Take the elements of data and put them in the correct order indicated by indexesOrder
+        firstShift=data[indexesOrder,:]
+    # otherwise just take the data as is
+    else:
+        firstShift=data
+    # create a new ouput array that is blank
+    secondShift=np.zeros(data.shape)
+    if not type(columnsOrder)==type(None):
+        # Take the elements of data and put them in the correct order indicated by columnsOrder
+        secondShift=firstShift[:,columnsOrder]
+    # otherwise just take the data as is
+    else:
+        secondShift=firstShift
+    # create a new pandas dataframe with the new indexes and columns
+    # but first resourt the indexes and columns
+    if not type(indexesOrder)==type(None):
+        resortedIndexes=[indexes[x] for x in indexesOrder]
+    else:
+        resortedIndexes=indexes
+    if type(columnsOrder)==type(None):
+        resortedColumns=[columns[x] for x in columnsOrder]
+    else:
+        resortedColumns=columns
+    dfOut=pd.DataFrame(secondShift,index=indexes,columns=columns)
+
+    return dfOut
+
+def consensus_partition(agreement_matrix, threshold, num_reps=1000, random_seed=None):
+    '''
+    Seek a consensus partition of an agreement matrix.
+    
+    Parameters:
+        agreement_matrix (np.ndarray): NxN agreement matrix with probabilities of nodes being in the same cluster.
+        threshold (float): Threshold for agreement matrix to control the resolution of reclustering.
+        num_reps (int): Number of times the clustering algorithm is reapplied. Default is 1000.
+        random_seed (hashable, optional): Seed for random number generation. If None, use the global random state.
+
+    Returns:
+        consensus_partition (np.ndarray): Consensus partition as a 1D array.
+
+    Note this is a reimplementation of bctpy's
+    https://github.com/aestrivex/bctpy/blob/1b40e281eda081060707e30b68106ac1ebf54130/bct/algorithms/clustering.py#L353
+
+    Testing
+    -------
+    # assuming you have an agreement matrix called agreementMatrix
+    threshold=.05
+    num_reps=1000
+    random_seed=None
+    agreement_matrix=agreementMatrix
+    consensusPartitionOut=consensus_partition(agreement_matrix,threshold,num_reps,random_seed)
+
+
+    '''
+    import numpy as np
+    import networkx as nx
+
+    # Initialize random number generator
+    rng = np.random.default_rng(seed=random_seed)
+    
+    def unique_partitions(partitions):
+        # Relabel partitions to recognize different numbers on the same topology
+        # maybe this can be implemented by applying a rule:
+        # partition elements should be numbered in sequence of their earliest node appearance
+        # lets implement this rule
+        # create a copy that will be the output
+        partitionsOut=partitions.copy()
+
+
+        for i in range(len(partitionsOut)):
+            # take the ith row
+            ithRow=partitionsOut[i,:].copy()
+            # get the unique elements
+            uniqueElements=np.unique(ithRow)
+            # return the first instance of each unique element using list comprehension
+            firstInstances=[np.where(ithRow==x)[0][0] for x in uniqueElements]
+            # find the indexes assoiated with each unique element (e.g. group)
+            indexes=[np.where(ithRow==x)[0] for x in uniqueElements]
+            # iterate across the unique elements and for each one change the record
+            # in partitionsOut corresponding to the current row of indexes to be the
+            # number firstInstance values that are less than the current element's firstInstance
+            for iUniqueElement in range(len(uniqueElements)):
+                # get the current unique element
+                currentUniqueElement=uniqueElements[iUniqueElement]
+                # get the current first instance
+                currentFirstInstance=firstInstances[iUniqueElement]
+                # get the current indexes
+                currentIndexes=indexes[iUniqueElement]
+                # get the number of firstInstance values that are less than the current element's firstInstance
+                numLessThanCurrent=np.sum(np.array(firstInstances)<currentFirstInstance)
+                # change the record in partitionsOut corresponding to the current row of indexes to be the
+                # number firstInstance values that are less than the current element's firstInstance
+                ithRow[currentIndexes]=numLessThanCurrent
+                # print the current row contents
+                #print(str(ithRow))
+            # replace the current row of partitionsOut with the new ithRow
+            partitionsOut[i,:]=ithRow
+
+        # find which of these rows are unique
+        uniqueRows=np.unique(partitionsOut,axis=0)
+        # return the unique rows
+        return uniqueRows
+
+
+    num_nodes = len(agreement_matrix)
+    flag = True
+
+    # Iteratively build consensus partition
+    while flag:
+        flag = False
+        thresholded_matrix = agreement_matrix * (agreement_matrix >= threshold)
+        np.fill_diagonal(thresholded_matrix, 0)
+
+        if np.size(np.where(thresholded_matrix == 0)) == 0:
+            # All nodes are singleton communities
+            consensus_partition = np.arange(1, num_nodes + 1)
+        else:
+            outGroupingsArray = np.zeros((num_nodes, num_reps))
+            
+            # test to get parameter space
+            #resolutionBounds=quickTestLouvainResolutionParamRange(agreement_matrix,minDesiredGroupings=4,maxDesiredGroupings=None,verbose=False)
+
+
+            #methodParams={'resolution': list(np.linspace(resolutionBounds[0],.1,sampleSpace)),'seed':[None for x in range(int(np.ceil(num_reps/sampleSpace)))]}
+            methodParams={'resolution': 1 ,'seed':[None for x in range(int(np.ceil(num_reps)))]}
+                # go ahead and use networkx to get the graph of the input agreement matrix
+            if   isinstance(agreement_matrix, np.ndarray):
+                networkxGraph=nx.from_numpy_array(agreement_matrix)
+            elif isinstance(agreement_matrix, np.matrix):
+                networkxGraph=nx.from_numpy_matrix(agreement_matrix)
+            elif isinstance(agreement_matrix, nx.Graph):
+                networkxGraph=agreement_matrix
+            testCommunities=detectCommunitiesFromMatrix(networkxGraph,method='louvain',parameterSweep=True,methodParams=methodParams)
+            # convert the test community outputs to the expected format
+            outGroupings=[convertListsOfNodeGroupings_to_identityVector(x) for x in testCommunities]
+            # convert to a numpy array
+            outGroupingsArray=np.array(outGroupings)
+            
+            # Obtain unique partitions
+            consensus_partition = unique_partitions(outGroupingsArray)
+            num_unique_partitions = np.size(consensus_partition, axis=0)
+            
+            if num_unique_partitions > 1:
+                # print('Number of unique partitions: ' + str(num_unique_partitions))
+                print('Number of unique partitions: ' + str(num_unique_partitions) + ' out of ' + str(num_reps))
+                flag = True
+                # Update agreement matrix for next iteration
+                agreement_matrix = agreementMatrixFromCommunityAssignments(outGroupingsArray)
+
+    # Return consensus partition
+    squoze_partition = np.squeeze(consensus_partition )
+
+    return squoze_partition
 
 
 
+def convertListsOfNodeGroupings_to_identityVector(listOfNodeGroupings):
+    """
+    This function converts a list of node groupings, as is the standard output of the 
+    networkx community detection algorithms, into a vector of community assignments,
+    with integers indicating the community group assignment of each node.
+    
+    Parameters
+    ----------
+    listOfNodeGroupings : list of lists of integers
+        A list of lists of integers, where each sublist contains the nodes in a community.
+
+    Returns
+    -------
+    identityVector : numpy array of integers
+        A vector of integers indicating the community group assignment of each node.  The sequence position
+        of the integer indicates the node number.
+    
+    """
+    import collections
+    import numpy as np
+    # first dissolve the list of lists into a single list in order to get a unique list of nodes
+    completeListOfNodes = []
+    for nodeGrouping in listOfNodeGroupings:
+        completeListOfNodes.extend(nodeGrouping)
+
+    # check if any nodes are repeated and throw an error if so
+    if len(completeListOfNodes) != len(set(completeListOfNodes)):
+        # find the repeated nodes
+        repeatedNodes = [item for item, count in collections.Counter(completeListOfNodes).items() if count > 1]
+        raise ValueError('The following nodes are repeated in the list of node groupings: ' + str(repeatedNodes))
+    
+    # if not, find the total number of nodes
+    numNodes = len(completeListOfNodes)
+    # create an output vector of zeros to be filled in
+    identityVector = np.zeros((numNodes,), dtype=int)
+
+    # iterate through the list of node groupings and fill in the identity vector
+    for communityIndex, nodeGrouping in enumerate(listOfNodeGroupings):
+        for node in nodeGrouping:
+            identityVector[node] = communityIndex
+
+    return identityVector
+
+def quickTestLouvainResolutionParamRange(inputMatrix,minDesiredGroupings=4,maxDesiredGroupings=None,verbose=False):
+    """
+    This function performs a quick test of the Louvain algorithm over a range of resolution parameters in order
+    to determine the parameter range which yeilds results within the desired range of groupings.  This is useful
+    for determining the range of resolution parameters to use for a more thorough search.
+
+    Parameters
+    ----------
+    inputMatrix : numpy array
+        An NxN numpy array representing the input matrix to be clustered.
+    minDesiredGroupings : int
+        The minimum number of desired groupings to be found by the Louvain algorithm.  The default is 4.
+    maxDesiredGroupings : int
+        The maximum number of desired groupings to be found by the Louvain algorithm.  The default is None which will 
+        compute a maxDesiredGroupings parameter based upon a heuristic of allowing for ~ 4 nodes per group.
+    verbose : bool
+        A boolean value indicating whether or not to print the results of the quick test.  The default is False.
+
+    Returns
+    -------
+    resolutionParameterRange : tuple of floats
+        A tuple containing the minimum and maximum resolution parameters to use for a more thorough search.
+        Within this range, Louvain clusterings can be expected to return the desired number of groupings.
+    """
+    import networkx as nx
+    import numpy as np
+
+    # set some internal parameters
+    initialMaxResolutionParameter=2
+    initialMinResolutionParameter=.5
+    repeatIterations=5
+    samples=10
+    startPoint=1
+    stepChange=.05
+    
+    # maybe you need to set the diagonal to true?
+    # np.fill_diagonal(inputMatrix,1)
+
+    # parse the inputMatrix into a networkx graph
+    if   isinstance(inputMatrix, np.ndarray):
+       
+        networkxGraph=nx.from_numpy_array(inputMatrix)
+    elif isinstance(inputMatrix, np.matrix):
+        networkxGraph=nx.from_numpy_matrix(inputMatrix)
+    elif isinstance(inputMatrix, nx.Graph):
+        networkxGraph=inputMatrix
+
+    # determine the number of nodes in the graph
+    numNodes=networkxGraph.number_of_nodes()
+
+    # determine the maximum number of desired groupings if not specified
+    if maxDesiredGroupings is None:
+        maxDesiredGroupings=int(np.ceil(numNodes/4))
+        # also set the error margin to be 1/10th of the maxDesiredGroupings
+        errorMargin=int(np.ceil(maxDesiredGroupings/10))
+
+    desiredRangeFound=False
+    # set current maxResolutionParameter and minResolutionParameter
+    currentMaxResolutionParameter=initialMaxResolutionParameter
+    currentMinResolutionParameter=initialMinResolutionParameter
+    # initalize vectors for both the current and previous grouping results
+    currentGroupingResults=np.zeros((samples))
+    previousGroupingResults=np.zeros((samples))
+    unchangedCounter=0
+
+    while not desiredRangeFound:
+        # print the current resolution parameter range
+        if verbose:
+            print('Current resolution parameter range: ' + str(currentMinResolutionParameter) + ' to ' + str(currentMaxResolutionParameter))
+
+        # initialize the resolution parameter range as a linear range with 100 samples
+        resolutionParameterRange_aboveOne=np.logspace(np.log10(startPoint),np.log10(currentMaxResolutionParameter),5)
+        resolutionParameterRange_belowOne=np.logspace(np.log10(startPoint),np.log10(currentMinResolutionParameter),5)
+        # merge and sort the two ranges
+        resolutionParameterRange=np.sort(np.concatenate((resolutionParameterRange_aboveOne,resolutionParameterRange_belowOne)))
+        # run the Louvain algorithm over the resolution parameter range, with repeatIterations repeats per resolution parameter and compute the number of groupings obtained from each run
+
+        numGroupings=np.zeros((len(resolutionParameterRange),repeatIterations))
+        for resolutionParameterIndex,resolutionParameter in enumerate(resolutionParameterRange):
+            for repeatIndex in range(repeatIterations):
+                communityAffiliation=list(nx.community.louvain_communities(networkxGraph,weight='weight',resolution=resolutionParameter))
+                numGroupings[resolutionParameterIndex,repeatIndex]=len(communityAffiliation)
+            
+        # compute the mean number of groupings obtained for the resolution parameters
+        meanNumGroupings=np.mean(numGroupings,axis=1)
+        # set the currentGroupingResults to be the meanNumGroupings
+        currentGroupingResults=meanNumGroupings
+        # check if the current and previous grouping results are the same
+        if np.array_equal(currentGroupingResults,previousGroupingResults):
+            # increment the unchanged counter
+            unchangedCounter=unchangedCounter+1
+        # check if the unchanged counter is greater than 5
+        if unchangedCounter > 5:
+            # throw an error, because we are stuck in a loop
+            raise ValueError('The quick test of the Louvain algorithm is stuck in a loop.  There may be a problem with the input matrix.')
+        # print the mean number of groupings obtained for the resolution parameters
+        if verbose:
+            print('Mean number of groupings obtained for the resolution parameters: ' + str(meanNumGroupings))
+        currentMaxGroupings=np.max(meanNumGroupings)
+        currentMinGroupings=np.min(meanNumGroupings)
+        
+        # check if proximity of the max and min resolution parameters to the maximum desired number of groupings
+        if currentMaxGroupings < maxDesiredGroupings and abs(currentMaxGroupings-maxDesiredGroupings) > errorMargin:
+            # then we need to increase the max resolution parameter, because:
+            # "If resolution is less than 1, the algorithm favors larger communities. Greater than 1 favors smaller communities"
+            currentMaxResolutionParameter=currentMaxResolutionParameter*(1+stepChange)
+        elif currentMaxGroupings > maxDesiredGroupings and abs(currentMaxGroupings-maxDesiredGroupings) > errorMargin:
+            # then we need to decrease the max resolution parameter, because:
+            # "If resolution is less than 1, the algorithm favors larger communities. Greater than 1 favors smaller communities"
+            currentMaxResolutionParameter=currentMaxResolutionParameter/(1+stepChange)
+        # also test the min resolution parameter
+        if currentMinGroupings > minDesiredGroupings and np.abs(currentMinGroupings-minDesiredGroupings) > 1:
+            # then we need to decrease the min resolution parameter, because:
+            # "If resolution is less than 1, the algorithm favors larger communities. Greater than 1 favors smaller communities"
+            currentMinResolutionParameter=currentMinResolutionParameter/(1+stepChange)
+        elif currentMinGroupings < minDesiredGroupings and np.abs(currentMinGroupings-minDesiredGroupings) > 1:
+            # then we need to increase the min resolution parameter, because:
+            # "If resolution is less than 1, the algorithm favors larger communities. Greater than 1 favors smaller communities"
+            currentMinResolutionParameter=currentMinResolutionParameter*(1+stepChange)
+
+        # do a test to see if all conditions are met
+        if abs(currentMaxGroupings-maxDesiredGroupings) <= errorMargin and np.abs(currentMinGroupings-minDesiredGroupings) <= 1:
+            # then we have found the desired range
+            desiredRangeFound=True
+        # find the log_10 based midpoint between the current max and min resolution parameters
+        log10Midpoint=np.log10(currentMaxResolutionParameter)-np.log10(currentMinResolutionParameter)
+        # compute the value this represents in the linear space
+        startPoint=10**log10Midpoint
+        #set the current currentGroupingResults to be the previousGroupingResults
+        previousGroupingResults=currentGroupingResults
+    print('Desired range found: ' + str(currentMinResolutionParameter) + ' to ' + str(currentMaxResolutionParameter))
+    return (currentMinResolutionParameter,currentMaxResolutionParameter)
+
+
+
+    
