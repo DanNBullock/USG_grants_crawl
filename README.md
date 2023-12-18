@@ -41,7 +41,7 @@ This repository contains a series of jupyter notebooks (stored under notebooks) 
 
 Broadly speaking, this collection of notebooks is intended to guide users through an increasingly complex analysis of data derived from grants.gov, as it relates to open science infrastructure.
 
-<font size="20">**For descriptions of the specific chapters, see [the `README` file contained within the `notebooks/` directory](https://github.com/DanNBullock/USG_grants_crawl/tree/main/notebooks)**</font>
+<font size="20">**For descriptions of the specific chapters, see [the `README` file contained within the `notebooks/` directory](https://github.com/DanNBullock/USG_grants_crawl/tree/main/notebooks/OLD_notebooks)**</font>
 
 ### Relevant modules
 Within the [`src/` directory](https://github.com/DanNBullock/USG_grants_crawl/blob/main/src/) the [`grantsGov_utilities.py` file](https://github.com/DanNBullock/USG_grants_crawl/blob/main/src/grantsGov_utilities.py) contains a number of thouroughly documented functions that are used throughout the notebooks.  Feel free to search through these, as later notbooks opt towards cleaner and more succinct code as opposed to rehashing code that has already been used.
