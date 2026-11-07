@@ -105,28 +105,25 @@ def plotNullValue_barPlot(dataCompletenessDF, logScale=None,figSize=None, fig=No
     if minVal == 0:
         minVal = 1
 
-    # plot the data, but implement the log-scale logic
-    if logScale==True:
-        sns.barplot(x='fieldName',y='numEmpty',data=dataCompletenessDF,ax=ax,log=True)
-    # handle the None / infer case
-    elif logScale==None:
-        # if the maximum value is more than three orders of magnitude greater than the minimum non-zero value, use a log base 10 scale
-        # also add minor tics if there are fewer than 4 orders of magnitude between the minimum and maximum values
+    # detect and set the log scale
+    if logScale is None:
         if np.log10(maxVal/minVal) > 3:
-            sns.barplot(x='fieldName',y='numEmpty',data=dataCompletenessDF,ax=ax,log=True)
-            # add minor tics at the integer values of the log scale if there are fewer than 4 orders of magnitude between the minimum and maximum values
-            # add faint horizontal lines aligned with the major tics
-            ax.yaxis.grid(True,which='major',linestyle='--',alpha=.5,color='cadetblue',linewidth=2)
-            if np.log10(maxVal/minVal) <= 7:
-                ax.xaxis.set_minor_locator(ticker.LogLocator(base=10.0,subs=np.arange(1,10)*.1))
-                # add faint horizontal lines aligned with the minor tics
-                ax.yaxis.grid(True,which='minor',linestyle='--',alpha=.5,color='powderblue',linewidth=1)
-        # otherwise, use a linear scale
+            logScale = True
         else:
-            sns.barplot(x='fieldName',y='numEmpty',data=dataCompletenessDF,ax=ax)
-    # handle the implicit False case
-    else : 
-        sns.barplot(x='fieldName',y='numEmpty',data=dataCompletenessDF,ax=ax)
+            logScale = False
+
+    # clarify the function by building the plotting argument procedurally
+    # start with the plot arguments that are always the same
+    plotArgs = {'x':'fieldName','y':'numEmpty','data':dataCompletenessDF,'ax':ax}
+    if logScale==True:
+        plotArgs['log']=True
+        # also go ahead and try to add major and minor tics to the y axis.  Is there a way to do this with the dictionary or do we have to use the ax object?
+        # we'll see if this works
+        plotArgs['ax'].yaxis.grid(True,which='major',linestyle='--',alpha=.5,color='cadetblue',linewidth=2)
+        plotArgs['ax'].yaxis.grid(True,which='minor',linestyle='--',alpha=.5,color='powderblue',linewidth=1)
+
+    sns.barplot(**plotArgs)
+
     # set the y-axis limits
     #ax.set_ylim([0,maxVal])
     # set the x axis labels to be rotated 60 degrees
@@ -510,7 +507,156 @@ def plotWordCount_histogram(wordCountDF,figSize=None,fig=None,ax=None,binSize=3)
 
     return fig
 
-def keywordCount_barPlot(keywordCountDF,figSize=None,fig=None,ax=None,logScale=False,figSavePath=None):
+def imposeHigherOrderStructureAndGetColormap(inputDF,higherOrderStructureDF,categoryColormap=None):
+    """
+    The following function imposes the provided higher order structure on the axes ordering of the inputDF,
+    and returns the resorted dataframe as well as a colormap for the categories in the higher order structure.
+
+    Parameters:
+    ----------
+    inputDF : pandas dataframe
+        An input pandas dataframe wherein either the rows or columns (or both) have some meaningful labels applied to them,
+        and or which there is a desired sort ordering, as specified by the higherOrderStructureDF input.
+    higherOrderStructureDF : pandas dataframe
+        A pandas dataframe containing the higher order structure to impose on the inputDF.  Can contain either
+        one or two columns.  
+        Note that, if only one column is provided, the provided order is assumed to be the
+        desired sort order, and the inputDF will be sorted according to this order.  Because no higher order 
+        categorization is provided, the colormap applied will simply be a sequential gradient, with one color
+        selected for each item in the axis.
+        If two columns are provided, it is assumed that the first column contains the higher order structure
+        (e.g. categories) and the second contains the elements which are to be found on (at least one of) the
+        axes of the inputDF.  In such a case, the colors will be selected based on the (unique) categories found
+        in the first column, also in a sequential fashion.
+    categoryColormap : string or matplotlib colormap object
+        A colormap to use for the categories in the higher order structure.  If None, a default colormap will be used.
+        Default is None which results in 'rainbow' being used.  matplotlib colormap object input not yet implemented.
+
+    Returns:
+    -------
+    sortedDF : pandas dataframe
+        A pandas dataframe containing the same data as the inputDF, but with the rows and/or columns sorted according
+        to the higher order structure provided.
+    outColorMapping : matplotlib colormap object (which is a _____? dtype) or maybe some sort of np array?
+        A colormap that is accepted for seaborn and matplotlib plotting functions which seek a finite sequence of color 
+        specifications.  The length of this colormap will be equal to the number of lower order elements in the higher
+        order structure provided, while the unique number of colors will be equal to the number of unique higher order
+        categories in the higher order structure provided.
+
+
+    
+    
+    """
+    import matplotlib.pyplot as plt
+    import analyzeData
+    import numpy as np
+    if higherOrderStructureDF is not None:
+        # get the relevant vars as lists
+        indexes=list(inputDF.index)
+        columns=list(inputDF.columns)
+        # check to see if the higher order structure is a single column or two columns
+        if len(higherOrderStructureDF.columns) == 1:
+            # if its a single column, that's the lower order structure, and the higher order structure is just the order
+            lowerOrderItems=list(higherOrderStructureDF.iloc[:,-1])
+            higherOrderItems=None
+        elif len(higherOrderStructureDF.columns) == 2:
+            # if its two columns, the first is the higher order structure and the second is the lower order structure
+            higherOrderItems=list(higherOrderStructureDF.iloc[:,0])
+            lowerOrderItems=list(higherOrderStructureDF.iloc[:,1])
+            #
+        # for debug purposes, print all four of these sorted next to each other
+        print('indexes: ',sorted(indexes))
+        print('columns: ',sorted(columns))
+        print('higherOrderItems: ',sorted(higherOrderItems))
+        print('lowerOrderItems: ',sorted(lowerOrderItems))
+
+
+
+        
+        # impose the higher order structure-based sorting
+        inputDF, higherOrderStructureDF=analyzeData.imposeHigherOrderStructureAndSequenceOnDF(inputDF,higherOrderStructureDF)
+        # so now it should be sorted
+        # but we should probably do a check to determine which axis was targeted.  We can do this by seeing which df axis label set the last column of higherOrderStructure is a subset of.
+        indexesTargetAxis=set(list(higherOrderStructureDF.iloc[:,-1])).issubset(set(list(inputDF.index)))
+        columnsTargetAxis=set(list(higherOrderStructureDF.iloc[:,-1])).issubset(set(list(inputDF.columns)))
+        # throw an errpr if neither axis was targeted
+        if not indexesTargetAxis and not columnsTargetAxis:
+            # first print the contents of the higher order structure
+            print('The higher order structure provided is:')
+            print(higherOrderStructureDF)
+            # then print the contents of both axes of the inputDF
+            print('The indexes of the inputDF are:')
+            print(inputDF.index)
+            # print the elements of the index which are not in the higher order structure
+            print('The indexes of the inputDF which are not in the higher order structure are:')
+            print(set(list(inputDF.index))-set(list(higherOrderStructureDF.iloc[:,-1])))
+            print('The columns of the inputDF are:')
+            print(inputDF.columns)
+            # print the elements of the columns which are not in the higher order structure
+            print('The columns of the inputDF which are not in the higher order structure are:')
+            print(set(list(inputDF.columns))-set(list(higherOrderStructureDF.iloc[:,-1])))
+            # then raise an error
+            raise ValueError('The higher order structure provided does not match either the indexes or columns of the inputDF.  Please provide a higher order structure which matches one of these axes.')
+
+        # we can also take this moment (now that we have the categorically sorted DF) to generate a color scheme for the respective categories
+        # first get the uniqe categories from the higher order structure, stored in the first column
+        uniqueCategories = list(higherOrderStructureDF.iloc[:,0].unique())
+        # good options from miscellaneous colormaps (https://matplotlib.org/stable/tutorials/colors/colormaps.html) seem to be:
+        # 'brg', 'gist_rainbow', 'rainbow', 'jet', 'hsv', and 'turbo'
+        # for now, we will default to rainbow
+        if categoryColormap is None:
+            categoryColormap = 'rainbow'
+        elif type(categoryColormap) != str:
+            # we haven't implemented the ability to input a manually generated colormap yet, so just throw a not implemented error
+            raise NotImplementedError('The ability to input a manually generated colormap has not yet been implemented.  Please input a string indicating the name of a matplotlib colormap.')
+        # otherwise if it is a string, we will assume it is a matplotlib colormap name
+        # generate the colormap
+        categoryColormap = plt.get_cmap(categoryColormap)
+        # generate the colors for each category
+        # if there is more than one column then the unique categores are what we use to dictate colors
+        if len(higherOrderStructureDF.columns) > 1:
+            
+            categoryColors = categoryColormap(np.linspace(0,1,len(uniqueCategories)))
+            # now we need to map it back onto the elements in the targeted axis
+            if indexesTargetAxis:
+                # so create an output list, outColorMapping, with as many elements as there are elements in the targeted axis
+                outColorMapping = [None]*len(inputDF.index)
+                # now loop through the unique categories and assign the appropriate color to each element in the targeted axis
+                for i,category in enumerate(uniqueCategories):
+                    # get the indices of the elements in the targeted axis that belong to this category
+                    categoryIndices = list(higherOrderStructureDF[higherOrderStructureDF.iloc[:,0] == category].index)
+                    # now loop through these indices and assign the appropriate color
+                    for index in categoryIndices:
+                        outColorMapping[index] = categoryColors[i]
+            # NOTE: If it's both, it shouldn't matter, as they should be in the same order with the same elements,
+            # so the indexesTargetAxis should be fine.
+            elif columnsTargetAxis:
+                # now we need to apply categoryColors to get the colors for the elements in the relevant axis
+                # so create an output list, outColorMapping, with as many elements as there are elements in the targeted axis
+                outColorMapping = [None]*len(inputDF.index)
+                # now loop through the unique categories and assign the appropriate color to each element in the targeted axis
+                for i,category in enumerate(uniqueCategories):
+                    # get the indices of the elements in the targeted axis that belong to this category
+                    categoryIndices = list(higherOrderStructureDF[higherOrderStructureDF.iloc[:,0] == category].index)
+                    # now loop through these indices and assign the appropriate color
+                    for index in categoryIndices:
+                        outColorMapping[index] = categoryColors[i]     
+        elif len(higherOrderStructureDF.columns) == 1:
+            #print which case
+            
+            # otherwise, if there is only one column, then the unique elements of the targeted axis are what we use to dictate colors
+            if indexesTargetAxis:
+                categoryColors = categoryColormap(np.linspace(0,1,len(inputDF.index)))
+                outColorMapping=categoryColors
+            elif columnsTargetAxis:
+                categoryColors = categoryColormap(np.linspace(0,1,len(inputDF.columns)))
+                outColorMapping=categoryColors
+    else:
+        # I don't know why you're here if you're passing in a higherOrderStructure of None, so lets throw an error
+        raise ValueError('You have passed in a higherOrderStructureDF of None.  This is not a valid input.  Please pass in a pandas dataframe containing the higher order structure you wish to impose on the inputDF.')
+    return inputDF, outColorMapping
+
+def keywordCount_barPlot(keywordCountDF,figSize=None,fig=None,ax=None,logScale=False,figSavePath=None, higherOrderStructure=None, categoryColormap=None):
     """
     This function takes in the keywordCount dataframe from analyzeData.countsFromCoOccurrenceMatrix
     and produces a seaborn bar plot of the number of occurrences of each keyword.
@@ -535,18 +681,48 @@ def keywordCount_barPlot(keywordCountDF,figSize=None,fig=None,ax=None,logScale=F
             If None, a 3 order of magnitude heuristic will be used to determine whether to use a log scale or not. 
         figSavePath : string
             A string containing the path to save the figure to.  If None, the figure will not be saved.
+        higherOrderStructure : pandas dataframe
+            A pandas dataframe containing the higher order structure of the data.  If None, the higher order structure will not be leveraged.
+            The input dataframe should have two columns:  the second of these will contain the 'lower order structure' which constitutes the 
+            actual categories or items that are present in the data (and thus, presumably, the figure axis).  The first column should contain
+            the 'higher order structure' which constitutes the higher order structure that the lower order structure is grouped into.  For example,
+            if the lower order structure is 'keyword' and the higher order structure is 'category', then the higher order structure would be the
+            category that each keyword belongs to.  Additionally, the sort ordering of both the higher order structure and the lower order structure
+            will be imposed upon the figure axes where relevant.
+        categoryColormap : string or _______ (whatever the accepted input for a manually generated colormap is)
+            A string indicating the matplotlib colormap to use or coloring categories (of the keywords) if relevant (i.e. if a higherOrderStructure variable is provided).
+            If None, will default to 'rainbow'.  Future Note: eventually may also allow input of manually generated colormaps.
 
     Output:
         fig : matplotlib figure object
             A figure object containing the bar plot of the number of occurrences of each keyword.
         ax : matplotlib axis object
             An axis object containing the bar plot of the number of occurrences of each keyword.
+
+    Testing:
+    --------
+    import pandas as pd
+    import os
+    pathToKeywordCountDF = '/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NSF/analyzed/keywordCounts.csv'
+    pathToHigherOrderStructure = '/media/dan/HD4/coding/gitDir/USG_grants_crawl/keywordLists/policy-derived_keywords.csv'
+    # load them
+    keywordCountDF = pd.read_csv(pathToKeywordCountDF)
+    higherOrderStructure = pd.read_csv(pathToHigherOrderStructure)
+    figSize=None
+    fig=None
+    ax=None
+    logScale=True
+    figSavePath=None
+    categoryColormap=None
+    
     """
     import matplotlib.pyplot as plt
     import matplotlib.ticker as ticker
     import seaborn as sns
     import numpy as np
     import pandas as pd
+    import analyzeData
+    from matplotlib.patches import Patch
 
     # create a figure if one was not provided
     if fig is None:
@@ -560,6 +736,7 @@ def keywordCount_barPlot(keywordCountDF,figSize=None,fig=None,ax=None,logScale=F
     if figSize is None:
         # figSizeHeuristic(longAxisItemNum,targetAxis,aspectRatio=3,heuristicFontSize = 10,heuristicFontBuffer = 2,heuristicMarginAlotment = 12)
         figSize=figSizeHeuristic(len(keywordCountDF),targetAxis='x',aspectRatio=3,heuristicFontBuffer = 3)
+    
 
     # check to ensure that the input fig size is tuple, list, or array of length 2
     # and then convert it to a tuple
@@ -580,32 +757,76 @@ def keywordCount_barPlot(keywordCountDF,figSize=None,fig=None,ax=None,logScale=F
     if minVal == 0:
         minVal = 1
 
-    # plot the data, but implement the log-scale logic
-    if logScale==True:
-        sns.barplot(x='itemID',y='count',data=keywordCountDF,ax=ax,log=True)
-    # handle the None / infer case
-    elif logScale==None:
-        # if the maximum value is more than three orders of magnitude greater than the minimum non-zero value, use a log base 10 scale
-        # also add minor tics if there are fewer than 4 orders of magnitude between the minimum and maximum values
-        if np.log10(maxVal/minVal) > 3:
-            sns.barplot(x='itemID',y='count',data=keywordCountDF,ax=ax,log=True)
-            # add faint horizontal lines aligned with the major tics
-            ax.yaxis.grid(True,which='major',linestyle='--',alpha=.5,color='cadetblue',linewidth=2)
-            # add minor tics at the integer values of the log scale if there are fewer than 4 orders of magnitude between the minimum and maximum values
-            if np.log10(maxVal/minVal) <= 7:
-                ax.xaxis.set_minor_locator(ticker.LogLocator(base=10.0,subs=np.arange(1,10)*.1))
-                # add faint horizontal lines aligned with the minor tics
-                ax.yaxis.grid(True,which='minor',linestyle='--',alpha=.5,color='powderblue',linewidth=1)
+    '''
+    Here is where we apply the higher order structure if it is provided
+    '''
+    if higherOrderStructure is not None:
+        # FOR THE SAKE OF THIS FUNCTION (and I do not think there will be issues for this, but we'll see...)
+        # we can impose indexing upon keywordCountDF based on the itemID column
+        # why would we do this?
+        tempReIndex_keywordCountDF = keywordCountDF.set_index('itemID')
+        # because imposeHigherOrderStructureAndGetColormap is going to seek a matche between the indexes / columns of the input dataframe and the column contents of higherOrderStructure
+        # impose the higher order structure-based sorting
+        tempReIndex_keywordCountDF, categoryColors=imposeHigherOrderStructureAndGetColormap(tempReIndex_keywordCountDF,higherOrderStructure,categoryColormap=categoryColormap)
+        # reset the index of keywordCountDF, and then re-impose the itemID column
+        keywordCountDF = tempReIndex_keywordCountDF.reset_index()
+        # set the name of the itemID column to 'itemID'
+        keywordCountDF = keywordCountDF.rename(columns={keywordCountDF.columns[0]:'itemID'})
+        # if there's actually higher order structure, get the higher order structure sequence
+        if len(higherOrderStructure.columns) > 1:
+        # quickly define an order preserving unique for lists: https://stackoverflow.com/questions/480214/how-do-i-remove-duplicates-from-a-list-while-preserving-order
+            def f7(seq):
+                seen = set()
+                seen_add = seen.add
+                return [x for x in seq if not (x in seen or seen_add(x))]
+            higherOrderStructureSequence = f7(higherOrderStructure.iloc[:,0])
 
-                # otherwise it would be too crowded, so don't add minor tics
-            else:
-                pass
-        # otherwise, use a linear scale
+    # weird edge case handling: in the event that you've passed a single column higherOrderStructure which really only has sequencing information
+    # and doesn't actually contain any higher order structure information, you don't really need to make use of any of the clustermap functionality
+    # so basically, you can just set the higherOrderStructure to None and proceed as normal
+    if higherOrderStructure is not None:
+        # if there's a single column, then we can just set the higherOrderStructure to None now that we are done with it
+        if len(higherOrderStructure.columns) == 1:
+            higherOrderStructure = None    
+
+
+    # detect and set the log scale
+    if logScale is None:
+        if np.log10(maxVal/minVal) > 3:
+            logScale = True
         else:
-            sns.barplot(x='itemID',y='count',data=keywordCountDF,ax=ax,log=False)
-    # handle the implicit False case
-    else : 
-        sns.barplot(x='itemID',y='count',data=keywordCountDF,ax=ax,log=False)
+            logScale = False
+
+    # debug print keywordCountDF
+    print(keywordCountDF)
+
+    # taking what we've learned from refactoring the heatmap plotting function, we can greatly improve the clarity by building the plotting parameters as a dictionary
+    # and then passing that dictionary to the plotting function
+    # so start with the plotting parameters that are always the same
+    plotParams = {'data':keywordCountDF,'x':'itemID','y':'count','ax':ax}
+    # now add the plotting parameters that are conditional on the log scale
+    if logScale==True:
+        plotParams['log']=True
+        # also go ahead and try to add major and minor tics to the y axis.  Is there a way to do this with the dictionary or do we have to use the ax object?
+        # we'll see if this works
+        plotParams['ax'].yaxis.grid(True,which='major',linestyle='--',alpha=.5,color='cadetblue',linewidth=2)
+        plotParams['ax'].yaxis.grid(True,which='minor',linestyle='--',alpha=.5,color='powderblue',linewidth=1)
+    if higherOrderStructure is not None:
+        # per https://www.statology.org/seaborn-barplot-color/ we can manually set the color of each bar
+        plotParams['palette']=categoryColors
+
+    # now that we have all that sorted out we can plot
+    sns.barplot(**plotParams)
+    # if there's higher order structure, we need to add the higher order structure labels
+    if higherOrderStructure is not None and len(higherOrderStructure.columns) > 1:
+        # get the indexes of the first instance of each higher order category from higherOrderStructure[:,0]
+        firstOccurrenceIndexes = [higherOrderStructure.index[higherOrderStructure.iloc[:,0]==iCategory][0] for iCategory in higherOrderStructureSequence]
+        # use these to get the colors for each category
+        uniqueCategoryColors = [categoryColors[iIndex] for iIndex in firstOccurrenceIndexes]
+        handles = [Patch(facecolor=uniqueCategoryColors[iIndex],label=iCategory) for iIndex,iCategory in enumerate(higherOrderStructureSequence)]
+        # we want the category legend to occupy the full width of the heatmap, and be situated above the top axis, between the heatmap and the title
+        # There should only really be about 6 to 12 categories,so lets just go ahead and specify 6 columns
+        plt.legend(handles=handles,loc='lower right',bbox_to_anchor=(.95, 1.05),ncol=6,frameon=True)
 
     # set the x axis labels to be rotated 60 degrees
     # NOTE: this doesn't work because it messes up the alignment of the x axis labels with the x axis tics
@@ -626,7 +847,7 @@ def keywordCount_barPlot(keywordCountDF,figSize=None,fig=None,ax=None,logScale=F
 
     return fig,ax
 
-def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=None,fig=None,ax=None,colorMap='viridis',logScale=False,figSavePath=None):
+def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=None,fig=None,ax=None,colorMap='viridis',logScale=False,figSavePath=None,higherOrderStructure=None,categoryColormap=None):
     """
     This function takes in a matrix-like pandas dataframe and generates a heat map plot of the data.
 
@@ -658,13 +879,33 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=None
         ax : matplotlib axis object
             An axis object containing the heat map plot of the matrix data.
 
+    Testing:
+    --------
+    pathToMatrixDF = '/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NSF/analyzed/coOccurrenceMatrix.csv'
+    pathToHigherOrderStructure = '/media/dan/HD4/coding/gitDir/USG_grants_crawl/keywordLists/policy-derived_keywords.csv'
+    import pandas as pd
+    # load them
+    matrixDF = pd.read_csv(pathToMatrixDF,index_col=0)
+    higherOrderStructure = pd.read_csv(pathToHigherOrderStructure)
+    rowTitle='Open-Science Terms'
+    colTitle='Open-Science Terms'
+    figSize=None
+    fig=None
+    ax=None
+    colorMap='viridis'
+    logScale=None
+    figSavePath=None
+    categoryColormap=None
+
+
     """
     import matplotlib.pyplot as plt
     import matplotlib
     import seaborn as sns
     import numpy as np
+    from matplotlib.patches import Patch
 
-   # create a figure if one was not provided
+    # create a figure if one was not provided
     if fig is None:
         fig,ax = plt.subplots(figsize=figSize)
     else :
@@ -676,6 +917,8 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=None
     if figSize is None:
         # figSizeHeuristic(longAxisItemNum,targetAxis,aspectRatio=3,heuristicFontSize = 10,heuristicFontBuffer = 2,heuristicMarginAlotment = 12)
         figSize=figSizeHeuristic(len(matrixDF),targetAxis='x',aspectRatio=1,heuristicFontSize = 10)
+        # double it, because this fig needs to be large
+        figSize = (figSize[0]*2,figSize[1]*2)
 
     # check to ensure that the input fig size is tuple, list, or array of length 2
     # and then convert it to a tuple
@@ -688,6 +931,23 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=None
         raise ValueError('The input figSize must be a tuple, list, or array of length 2')
     # set the figure size
     fig.set_size_inches(figSize)
+    # go ahead and compute font parameters
+    # compute a scaling factor for the major plot and key lablels based on the current figure size
+    currentWidth = fig.get_size_inches()[0]
+    # font size is 1/72 of an inch, so we will use this to scale the font size
+    # lets pretend like we want 30 chracters worth of these labels to occupy 1/3 of the figure width
+    inchesPerTitleChar = (currentWidth/3)/15
+    # now convert this to points
+    targetFontSize = inchesPerTitleChar*72
+    # here we have to set our tic label font size even smaller than xx-small
+    # get the default font size from rcParams
+    defaultFontSize = matplotlib.rcParams['font.size']
+    # per: https://stackoverflow.com/questions/62288898/matplotlib-values-for-the-xx-small-x-small-small-medium-large-x-large-xx
+    # xx-small is 0.5791666666666667*defaultFontSize; but we need it smaller still
+    # lets aim for 0.5*defaultFontSize
+    ticLabelFontSize = 0.36*defaultFontSize
+
+
     # for the sake of readability, if the minimum value in the matrix is zero, we will set these entries to NaN so that the color map doesn't get swamped by the zeros
     # first, get the minimum value and maximum value in the matrix
     minVal = matrixDF.min().min()
@@ -702,88 +962,138 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=None
     if minVal == 0:
         minVal = 1
 
+    # get the sorting and color map information, if relevant
+    if higherOrderStructure is not None:
+        # impose the higher order structure-based sorting
+        matrixDF, categoryColors=imposeHigherOrderStructureAndGetColormap(matrixDF,higherOrderStructure,categoryColormap=categoryColormap)
+        # but we also need to know which axis the colormap targets.  So we'll use the same heuristic we're using elsewhere, subsets
+        indexesTargetAxis=set(list(higherOrderStructure.iloc[:,-1])).issubset(set(list(matrixDF.index)))
+        columnsTargetAxis=set(list(higherOrderStructure.iloc[:,-1])).issubset(set(list(matrixDF.columns)))
+        # also get the order preserving sequence of the higher order structure
+        if len(higherOrderStructure.columns) > 1:
+            # quickly define an order preserving unique for lists: https://stackoverflow.com/questions/480214/how-do-i-remove-duplicates-from-a-list-while-preserving-order
+            def f7(seq):
+                seen = set()
+                seen_add = seen.add
+                return [x for x in seq if not (x in seen or seen_add(x))]
+            higherOrderStructureSequence = f7(higherOrderStructure.iloc[:,0])
 
-    # plot the data, but implement the log-scale logic
-    if logScale==True:
-        # previously: sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True,norm=matplotlib.colors.LogNorm())
-        # also, ensure that tic labels are provided for each cell of both the x and y axes
-        sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True,norm=matplotlib.colors.LogNorm(),xticklabels=True,yticklabels=True)
-    # handle the None / infer case
-    elif logScale==None:
-        # if the maximum value is more than two orders of magnitude greater than the minimum non-zero value, use a log base 10 scale
-        
+    # weird edge case handling: in the event that you've passed a single column higherOrderStructure which really only has sequencing information
+    # and doesn't actually contain any higher order structure information, you don't really need to make use of any of the clustermap functionality
+    # so basically, you can just set the higherOrderStructure to None and proceed as normal
+    if higherOrderStructure is not None:
+        # if there's a single column, then we can just set the higherOrderStructure to None now that we are done with it
+        if len(higherOrderStructure.columns) == 1:
+            higherOrderStructure = None    
+
+    # detect and set the log scale
+    if logScale is None:
         if np.log10(maxVal/minVal) > 2:
-            sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True,norm=matplotlib.colors.LogNorm(),xticklabels=True,yticklabels=True)
-        # otherwise, use a linear color map
+            logScale = True
         else:
-            sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True,xticklabels=True,yticklabels=True)
-    # handle the implicit False case
-    else : 
-        sns.heatmap(matrixDF,ax=ax,cmap=colorMap, cbar_kws={'label': 'Occurrence count'}, cbar=True,xticklabels=True,yticklabels=True)
+            logScale = False
 
-    # compute a scaling factor for the major plot and key lablels based on the current figure size
-    currentWidth = fig.get_size_inches()[0]
-    # font size is 1/72 of an inch, so we will use this to scale the font size
-    # lets pretend like we want 30 chracters worth of these labels to occupy 1/3 of the figure width
-    inchesPerTitleChar = (currentWidth/3)/15
-    # now convert this to points
-    targetFontSize = inchesPerTitleChar*72
+    # to make this extrodinarily clearer, we can generate a dictionary with our plotting parameters, and then pass that to the plotting function
+    # this shouold make it much easier to read and understand what is going on
+    # lets go ahead and set up the things that don't change beteween the plotting options and cases
+    plottingArgs = {'data':matrixDF,'cmap':colorMap,'cbar_kws':{'label': 'Occurrence count'},'xticklabels':True, 'yticklabels':True}
+    # if logScale is true, we need to add the log norm to the plotting arguments
+    if logScale == True:
+        plottingArgs['norm'] = matplotlib.colors.LogNorm()
+    # if higherOrderStructure is not None, then we'll need to start adding arguments for that.  In any of the available classes, we are not going to use the row or column clustering
+    if higherOrderStructure is not None:
+        # this is a workaround from here: https://github.com/mwaskom/seaborn/issues/2947
+        plottingArgs['cbar_pos']=(0.05, 0.25, 0.05, 0.55)
+        # also some kwargs that get passed to heatmap
 
-
-    # set the titles
-    ax.set_title('Co-occurrence matrix for\n' + rowTitle + ' by ' + colTitle)
-    # set the title font size
-    ax.title.set_fontsize(targetFontSize)
-    # set the y axis label
-    ax.set_ylabel(rowTitle)
-    # set the y axis label font size
-    ax.yaxis.label.set_fontsize(targetFontSize)
-    # set the x axis label
-    ax.set_xlabel(colTitle)
-    # set the x axis label font size
-    ax.xaxis.label.set_fontsize(targetFontSize)
-
-    # change the font size of the color bar tic labels and the color bar label
-    # first, get the color bar axis
-    cbar = ax.collections[0].colorbar
-    # set the color bar label font size
-    cbar.ax.set_ylabel('Occurrence count',fontsize=targetFontSize)
-    # set the color bar tic label font size, but half it and round down to an integer
-    cbar.ax.tick_params(labelsize=targetFontSize)
-
-    # seaborn defaults to trying to reduce the number of ticks on the x axis, which is not what we want here, so we will set the x axis ticks manually
-    # first, get the number of columns in the matrix
-
-    # get the labels as a list, they should be the same for both axes
-    labels = list(matrixDF.columns)
-
-    # to compensate for lots of text, lets set the tic labels to be slightly smaller than default
-    ax.tick_params(axis='x',labelsize=10)
-    # seaborn also places the x tics at the boundaries of the cells, which is not what we want here, so we will set the x axis tics to be in the middle of the cells
-    # first, get the width of the x axis
-    #xWidth = np.abs(ax.get_xlim()[1] - ax.get_xlim()[0])
-    #debug print
-    #print('xWidth is ' + str(xWidth))
-    # set the x axis tics to be in the middle of the cells
-    # debug print
-    #print('np.arange(0.5,xWidth,1) is ' + str(np.arange(0.5,xWidth,1)))
-    #ax.set_xticks(np.arange(0.5,xWidth,1))
+        plottingArgs['row_cluster'] = False
+        plottingArgs['col_cluster'] = False
+        # depending on which axis is being targeted we do need to add the row or column clustering
+        if indexesTargetAxis:
+            plottingArgs['row_colors'] = categoryColors
+        if columnsTargetAxis:
+            plottingArgs['col_colors'] = categoryColors
+    else:
+        # add the cbar keywords directly to the plotting arguments
+        plottingArgs['cbar']=True
 
 
-    # for whatever reason the x tic labels are no longer showing up, perhaps because manipulating them has reset them, so lets ensure we set them manually here
-    #ax.set_xticklabels(labels)
+    # that should be it, so now we use higherOrderStructure to determine which plotting function to use
+    if higherOrderStructure is None:
+        # if no higherOrderStructure is provided, go ahead and plot a heatmap
+        outFig=sns.heatmap(**plottingArgs)
+        ax = plt.gca()
+        # set the titles
+        ax.set_title('Co-occurrence matrix for\n' + rowTitle + ' by ' + colTitle)
+        # set the title font size
+        ax.title.set_fontsize('xx-large')
+        # set the y axis label
+        ax.set_ylabel(rowTitle)
+        # set the y axis label font size
+        ax.yaxis.label.set_fontsize('medium')
+        # set the x axis label
+        ax.set_xlabel(colTitle)
+        # set the x axis label font size
+        ax.xaxis.label.set_fontsize('medium')
+        # tic font size
+        ax.tick_params(axis='both', labelsize=ticLabelFontSize)
 
-    # likewise, ensure that there are y axis tics for every row, and that they are in the middle of the cells
-    ax.tick_params(axis='y',labelsize=10)
-    # first, get the height of the y axis
-    # y axis must be specified using a negative frame of reference for some reason
-    #yHeight = ax.get_ylim()[1] - ax.get_ylim()[0]
-    # set the y axis tics to be in the middle of the cells
-    #ax.set_yticks(np.arange(-0.5,yHeight,-1))
-    
-    # now set the y axis tic labels
-    #ax.set_yticklabels(labels)
-    
+        # change the font size of the color bar tic labels and the color bar label
+        # first, get the color bar axis
+        cbar = ax.collections[0].colorbar
+        # set the color bar label font size
+        cbar.ax.set_ylabel('Occurrence count',fontsize='x-large')
+        # set the color bar tic label font size, but half it and round down to an integer
+        cbar.ax.tick_params(labelsize='large')
+
+    else:
+
+
+        # otherwise we need to use a clustermap
+        outFig=sns.clustermap(**plottingArgs)
+        # this returns a clustermap object, which we can use to get the axes objects
+
+        # to change the labels of the primary heatmap, we need to get the axes object for the heatmap
+        #heatmapAxes = ax.get_children()
+        # and set the following
+        # set the titles
+        # heatmapAxes.set_title('Co-occurrence matrix for\n' + rowTitle + ' by ' + colTitle)
+        #outClusterFig.fig.suptitle('Co-occurrence matrix for\n' + rowTitle + ' by ' + colTitle,fontsize=targetFontSize)
+        outFig.ax_heatmap.set_title('Co-occurrence matrix for\n' + rowTitle + ' by ' + colTitle,fontsize='xx-large',pad=80)
+        # set the title font size
+        # heatmapAxes.title.set_fontsize(targetFontSize)
+        # set the y axis label
+        outFig.ax_heatmap.set_ylabel(rowTitle,fontsize='x-large')
+        # set the y axis label font size
+        # heatmapAxes.yaxis.label.set_fontsize(targetFontSize)
+        # set the x axis label
+        outFig.ax_heatmap.set_xlabel(colTitle,fontsize='x-large')
+        # set the x axis label font size
+        # heatmapAxes.xaxis.label.set_fontsize(targetFontSize)
+        # ax the font size for both the x and y axis tic labels
+        outFig.ax_heatmap.tick_params(axis='both', labelsize=ticLabelFontSize)
+
+        # try legend generation up here
+        # and produce a legend
+        firstOccurrenceIndexes = [higherOrderStructure.index[higherOrderStructure.iloc[:,0]==iCategory][0] for iCategory in higherOrderStructureSequence]
+        # use these to get the colors for each category
+        uniqueCategoryColors = [categoryColors[iIndex] for iIndex in firstOccurrenceIndexes]
+        handles = [Patch(facecolor=uniqueCategoryColors[iIndex],label=iCategory) for iIndex,iCategory in enumerate(higherOrderStructureSequence)]
+        # we want the category legend to occupy the full width of the heatmap, and be situated above the top axis, between the heatmap and the title
+        # There should only really be about 6 to 12 categories,so lets just go ahead and specify 6 columns
+        # seems like the x specification of bbox to anchor is somehow reversed here.
+        outFig.ax_heatmap.legend(handles=handles,loc='lower center',bbox_to_anchor=(.25, 1.05, .5,.05),ncol=2,frameon=True)
+
+
+
+        # set the color bar label font size
+        outFig.ax_cbar.set_ylabel('Occurrence count',fontsize='x-large')
+        # set the color bar tic label font size, but half it and round down to an integer
+        outFig.ax_cbar.tick_params(labelsize='large')
+
+
+
+
     # save the figure if a save path was provided
     if figSavePath is not None:
         # if it is '', then save using the default name
@@ -791,10 +1101,10 @@ def coOccurrenceMatrix_heatmapPlot(matrixDF,rowTitle='',colTitle='',figSize=None
             defaultName='coOccurrenceMatrix_' + rowTitle + '_by_' + colTitle + '.png'
             figSavePath = defaultName
         # in any case you should have the figure name by now, so save it
-        fig.savefig(figSavePath,bbox_inches='tight')
+        plt.gcf().savefig(figSavePath,bbox_inches='tight')
     
     # return the figure and axis objects
-    return fig,ax 
+    return outFig,ax 
 
 def matrix_histogramCounts(inputMatrix,keepAxis='columns',dropZero=True,binSize=1,figSize=(10,5),fig=None,ax=None,figSavePath=None):
     """
@@ -826,6 +1136,17 @@ def matrix_histogramCounts(inputMatrix,keepAxis='columns',dropZero=True,binSize=
             An axis object containing the histogram of the counts.
         - countsDF : pandas dataframe
             A pandas dataframe containing the counts associated with the input matrix.  The first column is the count value, and the second column is the number of times that count value was observed.
+    
+    Testing:
+    ----------
+    import pandas as pd
+    pathToPandasDF='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NIH/analyzed/coOccurrenceMatrix.csv'
+    pathToHigherOrderStructureDF='/media/dan/HD4/coding/gitDir/USG_grants_crawl/keywordLists/policy-derived_keywords.csv'
+    checkSortHigherOrder=True
+    # load them both
+    pandasDF=pd.read_csv(pathToPandasDF,index_col=0)
+    higherOrderStructureDF=pd.read_csv(pathToHigherOrderStructureDF)
+    outSorted=imposeHigherOrderStructureAndSequenceOnDF(pandasDF,higherOrderStructureDF,checkSortHigherOrder)
     
     """
     import matplotlib.pyplot as plt

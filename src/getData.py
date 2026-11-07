@@ -302,6 +302,13 @@ def getDataFromRemoteSource(destination,sourceOrg):
         # javascript stuff (e.g. javascript:__doPostBack("ctl00$Toolbar$toolBarActions$btnAction1","Export to Excel")
         # which I can't figure out how to use in a scriptable way.
 
+        # in any case, as a temporary work around, look in the `destination` folder, and see if there's already
+        # an xls file there.  If there is, return that file.  If there isn't, return false with the associated message
+        # use glob to get the list of files
+        xlsFiles=glob(destination + '*.xls')
+        if os.path.isfile(glob(destination + '*.xls')[0]):
+            return destination + 'DOE_Awards.xls'
+
         # so throw an error
         print('The DOE data is not currently available for scripted download.  Please navigate to \nhttps://pamspublic.science.energy.gov/WebPAMSExternal/Interface/Awards/AwardSearchExternal.aspx \nperform a search for *ALL* awards (active, expired, inactive, and closed) and click the "Export to Excel" button in the lower right corner.  Then, unzip the downloaded file and place the resulting Excel file in the directory ' + destination )
 

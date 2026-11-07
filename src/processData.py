@@ -25,7 +25,7 @@ def processDownloadedData(dataLocation,sourceOrg,saveDir,singleMulti='multi'):
 
     # establish a vector with the currently accepted sources
     # currently no support for NIH
-    acceptedSources=['NSF','grantsGov','NIH']
+    acceptedSources=['NSF','grantsGov','NIH','DOE']
 
     # check if the source is in the accepted sources
     if sourceOrg not in acceptedSources:
@@ -76,15 +76,17 @@ def processDownloadedData(dataLocation,sourceOrg,saveDir,singleMulti='multi'):
             xmlFiles_tal=glob(dataLocation+os.sep+'*_Tal_Exp.xml')
             # iterate across the xml files
             for iFiles in xmlFiles_tal:
+                print(iFiles + ' has been deleted')
                 # delete the file
                 os.remove(iFiles)
             # use glob to find all of the xml files
             xmlFiles_bk=glob(dataLocation+os.sep+'*_bk.xml')
             # iterate across the xml files
             for iFiles in xmlFiles_bk:
+                print(iFiles + ' has been deleted')
                 # delete the file
                 os.remove(iFiles)
-            processedDataDir
+            processedDataDir=saveDir
 
 
             # NOTE: thus the NSF data have been processed and saved down to the "processed" subdirectory of the dataLocation
@@ -95,6 +97,16 @@ def processDownloadedData(dataLocation,sourceOrg,saveDir,singleMulti='multi'):
             # beyond merging the data, there is currently (as of 2023-07-07) no additional processing needed
             processedDataDir=saveDir
             mergeNIHDataToXML(dataLocation,saveDir)
+        # if the source is DOE
+        elif sourceOrg=='DOE':
+            # inside the directory there should be a single excel file.  Grab it
+            inputExcelFile=glob(dataLocation+os.sep+'*.xls*')[0]
+            # but also yell if you don't find it
+            if len(inputExcelFile)==0:
+                # print the contents of the directory that was searched
+                print(os.listdir(dataLocation))
+                raise ValueError('No excel file found in '+dataLocation)
+            processeDOEsourceXLStoXMLs(inputExcelFile,saveDir,imposedRootTag='rootTag')
 
         # if the source is grants.gov
         elif sourceOrg=='grantsGov':
@@ -170,7 +182,7 @@ def processDownloadedData(dataLocation,sourceOrg,saveDir,singleMulti='multi'):
                     # if it fails throw an error
                     except:
                         raise ValueError('The grants.gov data could not be saved down to '+currSavePath + '\n' + 'The current row content is: ' + str(currentRow) )
-        print('grants.gov data have been processed and saved down to ' + processedDataDir)
+            print('grants.gov data have been processed and saved down to ' + processedDataDir)
     return
 
 
@@ -629,6 +641,8 @@ def processeDOEsourceXLStoXMLs(inputFilePath,outputDirectoryPath,imposedRootTag=
         for iColumn in range(len(columnHeaders)):
             # add the column name and value to the dictionary
             xmlDict[columnHeaders[iColumn]]=inputDF.loc[iRow,columnHeaders[iColumn]]
+        # impose the root tag
+        xmlDict={imposedRootTag:xmlDict}
         # convert the dictionary to an XML string
         xmlString=xmltodict.unparse(xmlDict,pretty=True)
         # get the award ID

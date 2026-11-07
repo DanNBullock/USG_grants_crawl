@@ -139,3 +139,57 @@ def regexOnXMLtest():
         grantsGov_results.append(searchResult)
     # check if the results match the expected results
     npt.assert_equal(grantsGov_results,grantsGov_expected)
+
+import numpy as np
+np.zeros((10,5))
+
+
+def unique_partitions_OLD(cis):
+    """
+    This is a copy of the "old" unique_partitions function, found here in bctpy:
+    https://github.com/aestrivex/bctpy/blob/1b40e281eda081060707e30b68106ac1ebf54130/bct/algorithms/clustering.py#L397-L428
+    which may or may not be working as intended.  We're using this instantion to test against the new version of the function.
+
+    NOTE: the documentation in this docstring is inferred from my reading / understanding of the code (08/11/2023).  It may not be correct.
+
+    My understanding is that this function takes in an N by M array / matrix of int type ( or int coercible), 
+    where N is the number of nodes and M is the number of repetitions of the clustering algorithm.  Given that any particular
+    clustering could have a different number of clusters, there should be no expectation that the number of clusters (and thus the number of unique integers)
+    is the same across all repetitions.  This function relabels the clusters so that the same clusters have the same integer label across all repetitions.
+
+
+    Parameters
+    
+    """
+    # relabels the partitions to recognize different numbers on same
+    # topology
+
+    n, r = np.shape(cis)  # ci represents one vector for each rep
+    # Dan Note: n probably means nodes, r probably means reps
+    ci_tmp = np.zeros(n)
+
+    for i in range(r):
+        for j, u in enumerate(sorted(
+                np.unique(cis[:, i], return_index=True)[1])):
+            ci_tmp[np.where(cis[:, i] == cis[u, i])] = j
+        cis[:, i] = ci_tmp
+        # so far no partitions have been deleted from ci
+
+    # now squash any of the partitions that are completely identical
+    # do not delete them from ci which needs to stay same size, so make
+    # copy
+    ciu = []
+    cis = cis.copy()
+    c = np.arange(r)
+    # count=0
+    while (c != 0).sum() > 0:
+        ciu.append(cis[:, 0])
+        dup = np.where(np.sum(np.abs(cis.T - cis[:, 0]), axis=1) == 0)
+        cis = np.delete(cis, dup, axis=1)
+        c = np.delete(c, dup)
+        # count+=1
+        # print count,c,dup
+        # if count>10:
+        #	class QualitativeError(): pass
+        #	raise QualitativeError()
+    return np.transpose(ciu)

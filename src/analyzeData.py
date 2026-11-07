@@ -1779,11 +1779,11 @@ def sumMergeMatrix_byCategories_REFACTOR(matrix,categoryKeyFileDF,targetAxis='co
     # print the number of records per category, with three such reports per line
     print('The number of records per category are:')
     for i in range(0,len(uniqueCategoryLabels),3):
-        print(uniqueCategoryLabels[i] + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i])),end=' ')
+        print(str(uniqueCategoryLabels[i]) + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i])),end=' ')
         if i+1<len(uniqueCategoryLabels):
-            print(uniqueCategoryLabels[i+1] + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i+1])),end=' ')
+            print(str(uniqueCategoryLabels[i+1]) + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i+1])),end=' ')
         if i+2<len(uniqueCategoryLabels):
-            print(uniqueCategoryLabels[i+2] + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i+2])),end=' ')
+            print(str(uniqueCategoryLabels[i+2]) + ': ' + str(categoryLabels.count(uniqueCategoryLabels[i+2])),end=' ')
         print('')
     
     # create the output dataframe, which should retain the off-axis labels (e.g. the axis opposing the one specified in targetAxis), but will have the targetAxis labels replaced with the category labels
@@ -2294,7 +2294,7 @@ def generatePermutatedCategoryCosineDistanceMatrices(inputMatrixDF, categoryKeyF
 
     return outputArray
 
-def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100,zScoreSavePath='',stdSavePath=None,meanSavePath=None):
+def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='columns',numPermutations=100,zScoreSavePath='',stdSavePath=None,meanSavePath=None,nullModelSavePath=None):
     """
     This function runs a permutation test to determine whether the cosine distance between categories is significantly different than would be expected by chance.
     Specifically, the category assignments specified in the category key file are randomly permuted, and the cosine distance matrix is computed for each permutation.
@@ -2352,17 +2352,24 @@ def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='
     # may be zero, so we need to check for that and replace them with 1's temporarily
     # this is because we are dividing by the standard deviation, and dividing by zero is not allowed
     tempStd=permutationStd.copy()
-    tempStd[tempStd==0]=1
-    zScores=np.divide(np.subtract(actualCosineResultsArray,permutationMean),tempStd)
+    tempStd[tempStd==0]=np.nan
+    zScores=np.divide(np.subtract(actualCosineResultsArray,permutationMean),tempStd,where=~np.isnan(tempStd))
+    # set the diagonal to zero, since it is not meaningful
+    # also set the places where tempSted is nan to nan
+    zScores[np.isnan(tempStd)]=np.nan
+    np.fill_diagonal(zScores,0)
+
     # convert the z-scores to a pandas dataframe
     if targetAxis=='columns':
         outputDF=pd.DataFrame(zScores,index=actualCosineDistanceMatrix.columns,columns=actualCosineDistanceMatrix.columns)
         meanDF=pd.DataFrame(permutationMean,index=actualCosineDistanceMatrix.columns,columns=actualCosineDistanceMatrix.columns)
         stdDF=pd.DataFrame(permutationStd,index=actualCosineDistanceMatrix.columns,columns=actualCosineDistanceMatrix.columns)
+        # permutationDF=pd.DataFrame(permutationResults,index=actualCosineDistanceMatrix.columns,columns=actualCosineDistanceMatrix.columns)
     elif targetAxis=='rows':
         outputDF=pd.DataFrame(zScores,index=actualCosineDistanceMatrix.index,columns=actualCosineDistanceMatrix.index)
         meanDF=pd.DataFrame(permutationMean,index=actualCosineDistanceMatrix.index,columns=actualCosineDistanceMatrix.index)
         stdDF=pd.DataFrame(permutationStd,index=actualCosineDistanceMatrix.index,columns=actualCosineDistanceMatrix.index)
+        # permutationDF=pd.DataFrame(permutationResults,index=actualCosineDistanceMatrix.index,columns=actualCosineDistanceMatrix.index)
 
     # save the z-scores dataframe to the specified path
     if zScoreSavePath is not None:
@@ -2373,6 +2380,11 @@ def categoryCosinePermutationTest(inputMatrixDF, categoryKeyFileDF, targetAxis='
     # save the standard deviation dataframe to the specified path
     if stdSavePath is not None:
         stdDF.to_csv(stdSavePath)
+    # save the permutation dataframe to the specified path
+    if nullModelSavePath is not None:
+        # permutationDF.to_csv(nullModelSavePath)
+        # this is already saved as permutationResults.npy, and the mean version is saved as meanDF
+        pass
 
     return outputDF
 
@@ -3697,6 +3709,65 @@ def detectDataSourceFromSchema(testDirOrFile):
         dataSource=None
     return dataSource
 
+def consensusCommunitiesFromLouvainParameterSweep(inputMatrixOrDF,nIter=10000):
+    """
+    This function performs a parameter sweep over the resolution parameter for the Louvain community detection algorithm,
+    and returns the single consensus community assignment for each node.
+
+    Inputs:
+        inputMatrixOrDF: np.array or pandas.DataFrame
+            The input matrix or dataframe to be used for community detection
+        nIter: int
+            The number of iterations to use for the parameter sweep
+
+    Outputs:
+        outputDF: pandas.DataFrame
+            A dataframe with the following columns:
+                'category': the category of the node
+                'item': the name of the node, if available from the input matrix or dataframe   
+
+    Testing:
+    --------
+    import pandas as pd
+    pathToInputMatrix='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NSF/analyzed/coOccurrenceMatrix.csv'
+    # load it
+    inputMatrix=pd.read_csv(pathToInputMatrix,index_col=0)
+    inputMatrixOrDF=inputMatrix
+    nIter=10000
+    """
+    import pandas as pd
+
+    # convert the input inputMatrixOrDF to a np array
+    inputMatrix=np.array(inputMatrixOrDF)
+
+    # then use quickTestLouvainResolutionParamRange(inputMatrix,minDesiredGroupings=4,maxDesiredGroupings=None,verbose=False)
+    # to determine the range of resolution parameters to sweep over
+    #louvainTuple=quickTestLouvainResolutionParamRange(inputMatrix,minDesiredGroupings=4,maxDesiredGroupings=None,verbose=False)
+    # next set up the dictionaries for the parameter sweep
+    #methodParams={'resolution': np.linspace(louvainTuple[0],louvainTuple[1],nIter).tolist()}
+    methodParams={'resolution': np.linspace(1,1.1,nIter).tolist()}
+    # next run the parameter sweep
+    communityAssignments=detectCommunitiesFromMatrix(inputMatrix,method='louvain',parameterSweep=True,methodParams=methodParams)
+    # next get the agreement matrix from these
+    agreementMatrix=agreementMatrixFromCommunityAssignments(communityAssignments)
+    # next run the consensus community detection algorithm
+    consensusCommunityAssignments=consensus_partition(agreementMatrix, threshold=.05, num_reps=1000, random_seed=None)
+    # lacking a better method for labeling these groups... lets use the numeral provided by the label in 
+    # consensusCommunityAssignments, which should be an N long vector, where N is the len of the inputMatrix
+    # if we're lucky the user input a dataframe with column labels, so we can use those for the lower order structure names
+    if type(inputMatrixOrDF)==pd.DataFrame:
+        itemLabels=list(inputMatrixOrDF.columns.values)
+    # otherwise, we'll just use the index values
+    else:
+        # just create a range of numbers
+        itemLabels=list(range(len(inputMatrixOrDF)))
+    # now create an output dataframe with two columns, the first should be the category assignments while the second should be the item labels
+    outputDF=pd.DataFrame({'category':consensusCommunityAssignments,'item':itemLabels})
+    return outputDF
+
+
+
+
 def detectCommunitiesFromMatrix(inputMatrixOrDF,method='louvain',parameterSweep=True,methodParams=None):
     """
     This function takes in a matrix and performs community detection on the connectivity graph represented by that matrix.
@@ -4244,10 +4315,13 @@ def reorderPandasDFAxesElements(pandasDF,indexesOrder=None,columnsOrder=None):
     import numpy as np
     import pandas as pd
     # check and make sure that indexesOrder and columnsOrder are unique
-    if len(indexesOrder)!=len(set(indexesOrder)):
-        raise ValueError('indexesOrder contains duplicate elements')
-    if len(columnsOrder)!=len(set(columnsOrder)):
-        raise ValueError('columnsOrder contains duplicate elements')
+    # if they are not none
+    if not type(indexesOrder)==type(None):
+        if len(indexesOrder)!=len(set(indexesOrder)):
+            raise ValueError('indexesOrder contains duplicate elements')
+    if not type(columnsOrder)==type(None):
+        if len(columnsOrder)!=len(set(columnsOrder)):
+            raise ValueError('columnsOrder contains duplicate elements')
 
 
     # copy the pandasDF
@@ -4280,13 +4354,198 @@ def reorderPandasDFAxesElements(pandasDF,indexesOrder=None,columnsOrder=None):
         resortedIndexes=[indexes[x] for x in indexesOrder]
     else:
         resortedIndexes=indexes
-    if type(columnsOrder)==type(None):
+    if not type(columnsOrder)==type(None):
         resortedColumns=[columns[x] for x in columnsOrder]
     else:
         resortedColumns=columns
-    dfOut=pd.DataFrame(secondShift,index=indexes,columns=columns)
+    dfOut=pd.DataFrame(secondShift,index=resortedIndexes,columns=resortedColumns)
 
     return dfOut
+
+def imposeHigherOrderStructureAndSequenceOnDF(pandasDF,higherOrderStructureDF=None,checkSortHigherOrder=True):
+    """
+    This function reorders the relevant axes of a pandas dataframe according to the higherOrderStructureDF.
+    This could be in response to a community clustering output, as with consensus_partition or it could be
+    in response to a pre-existing higher order organization, as with categories for keywords.
+
+    Parameters:
+        pandasDF: pandas.DataFrame
+            Pandas dataframe whose content is to be reordered in accordance with higherOrderStructureDF
+        higherOrderStructureDF: pandas.DataFrame
+            A two column pandas dataframe that contains the higher order structure of the data.  If None, the higher order structure will not be leveraged.
+            The input dataframe should have two columns:  the second of these will contain the 'lower order structure' which constitutes the 
+            actual categories or items that are present in the data (and thus, presumably, the figure axis).  The first column should contain
+            the 'higher order structure' which constitutes the higher order structure that the lower order structure is grouped into.  For example,
+            if the lower order structure is 'keyword' and the higher order structure is 'category', then the higher order structure would be the
+            category that each keyword belongs to.  Additionally, the sort ordering of both the higher order structure and the lower order structure
+            will be imposed upon the figure axes where relevant.
+
+            Also, if it is a single column, this will simply be used to impart the sort order on to the lower order elements.
+            Yes, this has the same ultimate impact as the output does not actually contain any reference to the higher order structure.
+        checkSortHigherOrder: bool
+            If True, then we will check the organizational pattern of the higherOrder column of higherOrderStructureDF in order to determine if
+            the similar-categoried elements of this column are grouped together (e.g. the categories are contiguously organized).  They need not be
+            sorted by alphabetical order or any other metric, but this check is to ensure that they are grouped together contiguously.  As such,
+            if this is True, then the check will be performed and if the higher order column contents are not contiguous, they will be made contiguous,
+            while still peserving as much of the ordering as possible (thus this may simply result in a first come first serve ordering of the higher).
+
+    Returns:
+        outDF: pandas.DataFrame
+            Pandas dataframe with the relevant axes reordered according to the higherOrderStructureDF
+        filteredHigherOrderStructureDF: pandas.DataFrame
+            A filtered version of the higherOrderStructureDF that only contains the elements that are present in the pandasDF
+
+    Testing:
+    ----------
+    import pandas as pd
+    pathToPandasDF='/media/dan/HD4/coding/gitDir/USG_grants_crawl/inputData/NIH/analyzed/coOccurrenceMatrix.csv'
+    pathToHigherOrderStructureDF='/media/dan/HD4/coding/gitDir/USG_grants_crawl/keywordLists/policy-derived_keywords.csv'
+    checkSortHigherOrder=True
+    # load them both
+    pandasDF=pd.read_csv(pathToPandasDF,index_col=0)
+    higherOrderStructureDF=pd.read_csv(pathToHigherOrderStructureDF)
+    outSorted=imposeHigherOrderStructureAndSequenceOnDF(pandasDF,higherOrderStructureDF,checkSortHigherOrder)
+    
+    """
+    import pandas as pd
+    import numpy as np
+
+    if higherOrderStructureDF is not None:
+    # determine how many columns we are working with
+        if len(higherOrderStructureDF.columns)==1:
+            # if its the single column
+            # then extract the column contents
+            # NOTE: as opposed to the two column, higher order category case, we don't really have much else to go on, so we kind of just assume that the 
+            # input ordering is precisely what the user desires, in the single column case.
+            lowerOrderStructure=list(higherOrderStructureDF.iloc[:,0].values)
+            # go ahead and set higher order structure to None
+            higherOrderStructure=None
+        elif len(higherOrderStructureDF.columns)==2:
+            # if its the two column
+            # then we FIRST need to sort the whole DF content in accordance with the higher order content
+            # should we actually be doing this though?  Really we would only want to do this if they are not already sorted
+            if checkSortHigherOrder:
+                # then lets check if the higher order contents are sorted contiguously
+                # get the column content
+                higherOrderStructure=list(higherOrderStructureDF.iloc[:,0].values)
+                # check if the elements are contiguous such that a given token (these are strings) IS NOT followed by a different
+                # string if there are other instances of that same string token later in the list
+                # quick way to do this is to just convert all of the strings to integers based on their index in the unique (order preserved?) list of contents
+                # weirdly, it turns out that order preserving unique is faster in pandas than numpy according to: 
+                # https://stackoverflow.com/questions/15637336/numpy-unique-with-order-preserved
+                uniqueHigherOrderContents=list(pd.unique(higherOrderStructureDF.iloc[:,0]))
+                # create a list that maps the index in uniqueHigherOrderContents on to the instances of higherOrderStructure
+                indexListingConvert=[uniqueHigherOrderContents.index(x) for x in higherOrderStructure]
+                # now we can check if the elements are contiguous
+                # run the check, using a while loop, I guess
+                sortedCheckComplete=False
+                # starting from the assumption that the content is not sorted
+                contentIsSorted=False
+                while not sortedCheckComplete:
+                    # so a silly and inefficient way to do this would be to iterate through indexListingConvert
+                    # and check if each element is followed by itself or a different number (so long as there is more than one instance of that element)
+                    # instead, we can simply pull the indexes in indexListingConvert for each unique element and see if they themselves are contiguous
+                    for i in range(len(uniqueHigherOrderContents)-1):
+                        # get the indexes of the current unique element using np.where
+                        currentIndexes=np.where(np.array(indexListingConvert)==i)[0]
+                        # check if the indexes are contiguous
+                        # from https://www.geeksforgeeks.org/python-check-if-list-contains-consecutive-numbers/
+                        sortedBool=sorted(currentIndexes)==list(range(min(currentIndexes),max(currentIndexes)+1))
+                        # if they are not, we can break the loop, and our sorting check is complete, so set sortedCheckComplete to true
+                        if not sortedBool:
+                            sortedCheckComplete=False
+                            break
+                    # if we get to the end of the loop without breaking, then the list is sorted and we can set both sortedCheckComplete and contentIsSorted to True
+                    sortedCheckComplete=True
+                    contentIsSorted=True
+                # now that we have checked if the content is sorted (which we just meant to be contiguously sequenced, e.g. "Nominal" type of level of measurement, with no assumption of inherently meaningful sequencing of categories)
+                # we can impose a sorting upon the higherOrderStructureDF if it is not already sorted
+                # NOTE: why did we go to the trouble of all this?  Because the user may have sequenced the higher order categories in a meaningful fashion
+                # that is OTHER than alphabetical sequencing, which is what the following bit will impose, and they may have wished to preserve that sorting.
+                # thus, in the case that `checkSortHigherOrder` is True (we're already in that conditional right now) AND contentIsSorted=False, then we will sort 
+                # the higherOrderStructureDF by the higher order column contents, which will impose an alphabetical sorting on the higher order column contents
+                if not contentIsSorted:
+                    # then we need to sort the higherOrderStructureDF by the higher order column contents
+                    # first, lets sort the higherOrderStructureDF by the higher order column contents
+                    higherOrderStructureDF=higherOrderStructureDF.sort_values(by=higherOrderStructureDF.columns[0])
+                else:
+                    # do nothing, as we assume the current contiguous sequencing is meaningful.
+                    pass
+                    # then extract the column contents, which should now be appropriately sorted
+            else:
+                # if `checkSortHigherOrder` is False, then presumably the user has all of the content in the order they want, even if it is not contiguous(?)
+                pass
+            # in any case, now we can extract the content  
+            lowerOrderStructure=list(higherOrderStructureDF.iloc[:,1].values)
+            higherOrderStructure=list(higherOrderStructureDF.iloc[:,0].values)
+        else:
+            raise ValueError('higherOrderStructureDF must have either one or two columns')
+        
+        # now that we have it, lets identify the relevant axes of the pandasDF
+        # get the column and index content of the pandasDF
+        pandasDFColumns=list(pandasDF.columns)
+        pandasDFIndexes=list(pandasDF.index)
+        # we now need to identify which of these is a subset of the lowerOrderStructure--
+        # REMEMBER: it could be that the categorization schema of the higherOrderStructureDF provides
+        # information about categories or entities that are NOT present in the current pandasDF, which may be a subset
+        # of a larger dataset.  In this case, we want to ignore those categories or entities that are not present in the
+        # current pandasDF
+        # so lets just create some bool flags to determine which is the case
+        indexesAreSubset=set(pandasDFIndexes).issubset(set(lowerOrderStructure))
+        columnsAreSubset=set(pandasDFColumns).issubset(set(lowerOrderStructure))
+        
+        # handle the both case, which would potentially be the most complicated
+        if indexesAreSubset and columnsAreSubset:
+            # do a check here to ensure that the indexes and columns vectors are the same, because it would just get too messy
+            # to try and deal with the case where we are dealing with different subsets here
+            if pandasDFIndexes!=pandasDFColumns:
+                raise ValueError('pandasDFIndexes and pandasDFColumns must be the same if both are subsets of lowerOrderStructure')
+            # both are a subset, so now we need to subset the lowerOrderStructure to only include the relevant elements which appear in either
+            # the index or the columns
+            # given that we're assuming they are the same, we only need to check one though
+            lowerOrderStructure=[x for x in lowerOrderStructure if x in pandasDFIndexes]
+            # now that we have the listing (and thus sequencing) of elements in the input pandasDF axis, we can find the sort mapping
+            # between the lowerOrderStructure and the pandasDFIndexes
+            sortOrdering=[lowerOrderStructure.index(x) for x in pandasDFIndexes]
+            # now we apply this to BOTH axes of the pandasDF using reorderPandasDFAxesElements(pandasDF,indexesOrder=None,columnsOrder=None)
+            outDF=reorderPandasDFAxesElements(pandasDF,indexesOrder=sortOrdering,columnsOrder=sortOrdering)
+            # create filteredHigherOrderStructureDF, by subsetting the higherOrderStructureDF to only include the rows whose last column elements (i.e. the lower order structure elements) are in the relevant axis content (as found in lowerOrderStructure)
+            filteredHigherOrderStructureDF=higherOrderStructureDF.loc[[True if x in lowerOrderStructure else False for x in higherOrderStructureDF.iloc[:,1]]]
+        elif indexesAreSubset and not columnsAreSubset:
+            lowerOrderStructure=[x for x in lowerOrderStructure if x in pandasDFIndexes]
+            sortOrdering=[lowerOrderStructure.index(x) for x in pandasDFIndexes]
+            # now we apply this to the INDEXES axis of the pandasDF using reorderPandasDFAxesElements(pandasDF,indexesOrder=None,columnsOrder=None)
+            outDF=reorderPandasDFAxesElements(pandasDF,indexesOrder=sortOrdering,columnsOrder=None)
+            # create filteredHigherOrderStructureDF
+            filteredHigherOrderStructureDF=higherOrderStructureDF.loc[[True if x in lowerOrderStructure else False for x in higherOrderStructureDF.iloc[:,1]]]
+        elif not indexesAreSubset and columnsAreSubset:
+            lowerOrderStructure=[x for x in lowerOrderStructure if x in pandasDFColumns]
+            sortOrdering=[lowerOrderStructure.index(x) for x in pandasDFColumns]
+            # now we apply this to the COLUMNS axis of the pandasDF using reorderPandasDFAxesElements(pandasDF,indexesOrder=None,columnsOrder=None)
+            outDF=reorderPandasDFAxesElements(pandasDF,indexesOrder=None,columnsOrder=sortOrdering)
+            # create filteredHigherOrderStructureDF
+            filteredHigherOrderStructureDF=higherOrderStructureDF.loc[[True if x in lowerOrderStructure else False for x in higherOrderStructureDF.iloc[:,1]]]
+        else:
+            # if neither is a subset, then basically we've hit an error.  Print the content of the lowerOrderStructure and the pandasDFIndexes and pandasDFColumns
+            # so the user can see what is going on
+            print('lowerOrderStructure:')
+            # print 8 items per line
+            [print(x,end=', ') if (i+1)%8!=0 else print(x) for i,x in enumerate(lowerOrderStructure)]
+            print('pandasDFIndexes:')
+            # print 8 items per line
+            [print(x,end=', ') if (i+1)%8!=0 else print(x) for i,x in enumerate(pandasDFIndexes)]
+            print('pandasDFColumns:')
+            # print 8 items per line
+            [print(x,end=', ') if (i+1)%8!=0 else print(x) for i,x in enumerate(pandasDFColumns)]
+            raise ValueError('pandasDFIndexes OR pandasDFColumns must be a subset of lowerOrderStructure, but currently neither are.')
+    else:
+        # I don't know what you're doing here, but I guess this is a passthrough
+        print('Passthrough operation detected for imposeHigherOrderStructureAndSequenceOnDF')
+        outDF=pandasDF
+        filteredHigherOrderStructureDF=None
+    # outDF, filteredHigherOrderStructureDF=imposeHigherOrderStructureAndSequenceOnDF
+    return outDF, filteredHigherOrderStructureDF
+
 
 def consensus_partition(agreement_matrix, threshold, num_reps=1000, random_seed=None):
     '''
